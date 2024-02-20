@@ -20,7 +20,7 @@ forwarder:
   image: ericlee08543/dev_funcx
   tag: rm_s3_forwarder
   pullPolicy: IfNotPresent
-  advertise_ip: 10.16.52.195
+  advertise_ip: << input your advertised ip here >>
 
 
 postgresql:
