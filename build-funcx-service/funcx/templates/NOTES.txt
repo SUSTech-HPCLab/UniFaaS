@@ -1,0 +1,17 @@
+FuncX Deployed.
+It will take a few seconds for postgres and redis to start up. You can monitor
+progress via the command
+
+    kubectl get pods --namespace {{ .Release.Namespace }}
+
+To access the REST server you will need to run a Kubernetes Port-Forward:
+
+{{- if .Values.ingress.enabled -}}
+Your service will be waiting for you at http://{{ .Release.Name }}-funcx.{{ .Values.ingress.host }}
+{{- else }}
+  kubectl port-forward service/{{ .Release.Name }}-funcx-web-service 5000:8000
+{{- end }}
+
+
+To access the websocket service you will need to run a Kubernetes Port-Forward:
+kubectl port-forward service/{{ .Release.Name }}-funcx-websocket-service 6000:6000

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-funcx-web-service
+spec:
+  replicas: {{ .Values.webService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-funcx-web-service
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-funcx-web-service
+    spec:
+      {{- if .Values.storage.s3ServiceAccount }}
+      serviceAccountName: {{- .Values.storage.s3ServiceAccount }}
+      securityContext:
+        fsGroup: 1000
+      {{- end }}
+    {{- if .Values.services.postgres.enabled }}
+      initContainers:
+      - name: check-postgresql
+        image: "ncsa/checks:latest"
+        env:
+          - name: PG_URI
+            value: 'postgresql://{{  .Values.postgresql.postgresqlUsername }}:{{ .Values.postgresql.postgresqlPassword }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.postgresqlDatabase }}'
+    {{- end }}
+      containers:
+      - name: {{ .Release.Name }}-funcx-web-service
+        image: {{ .Values.webService.image }}:{{ .Values.webService.tag }}
+        env:
+        - name: APP_CONFIG_FILE
+          value: "/opt/funcx/app.conf"
+        - name: LOGLEVEL
+          value: '{{ .Values.webService.loglevel }}'
+    {{- if .Values.secrets }}
+        - name: GLOBUS_CLIENT
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets }}
+              key: globusClient
+        - name: GLOBUS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets }}
+              key: globusKey
+      {{- if not .Values.services.postgres.enabled }}
+        - name: SQLALCHEMY_DATABASE_URI
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets }}
+              key: externalPostgresURI
+      {{- end }}
+    {{- end }}
+    {{- if .Values.storage.awsSecrets }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_SESSION_TOKEN
+    {{- end }}
+
+        - name: FUNCX_S3_BUCKET_NAME
+          value: "{{ .Values.storage.s3Bucket }}"
+        - name: FUNCX_REDIS_STORAGE_THRESHOLD
+          value: "{{ .Values.storage.redisThreshold }}"
+
+        tty: true
+        stdin: true
+        imagePullPolicy: {{ .Values.webService.pullPolicy }}
+        {{- if .Values.webService.resources }}
+        resources:
+{{ toYaml .Values.webService.resources | indent 10 }}
+        {{- end }}
+
+        volumeMounts:
+          - name: app-cfg
+            mountPath: /opt/funcx
+          - name: sqlite
+            mountPath: /sqlite
+        ports:
+          - containerPort: 5000
+
+      volumes:
+        - name: app-cfg
+          configMap:
+            name:  {{ .Release.Name }}-web-service-config
+        - name: sqlite
+          emptyDir: {}

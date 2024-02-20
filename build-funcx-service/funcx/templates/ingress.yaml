@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+{{- if .Values.ingress.use_alb }}
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /v2/version
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/subnets: {{ .Values.ingress.subnets }}
+    alb.ingress.kubernetes.io/load-balancer-attributes: routing.http2.enabled=true
+    alb.ingress.kubernetes.io/load-balancer-name: {{ .Release.Name }}-funcx {{ .Values.ingress.name }}
+{{- else }}
+    kubernetes.io/ingress.class: nginx
+{{- end }}
+  labels:
+    app: {{ .Release.Name }}-funcx
+  name: {{ .Release.Name }}-funcx-ingress
+spec:
+  rules:
+  - host: {{ .Values.ingress.host }}
+    http:
+      paths:
+      - path: /v2
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-funcx-web-service
+            port:
+              number: 8000
+      - path: /ws/v2
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-funcx-websocket-service
+            port:
+              number: 6000
+{{- end }}

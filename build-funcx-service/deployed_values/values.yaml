@@ -1,0 +1,50 @@
+# Default values for funcx.
+# This is a YAML-formatted file.
+ingress:
+  enabled: false
+  host: uc.ssl-hep.org
+
+webService:
+  image: ericlee08543/dev_funcx
+  tag: rm_s3_webservice
+  pullPolicy: IfNotPresent
+
+  replicas: 1
+
+endpoint:
+  enabled: false
+
+
+forwarder:
+  enabled: true
+  image: ericlee08543/dev_funcx
+  tag: rm_s3_forwarder
+  pullPolicy: IfNotPresent
+  advertise_ip: 10.16.52.195
+
+
+postgresql:
+  postgresqlUsername: funcx
+  postgresqlPassword: leftfoot1
+  postgresqlDatabase: public
+  pullPolicy: Always
+
+  persistence:
+    enabled: false
+  
+redis:
+  usePassword: false
+  master:
+    persistence:
+      enabled: false
+
+rabbitmq:
+  auth:
+    erlangCookie: c00kie
+  pullPolicy: Always
+
+
+websocketService:
+  image: funcx/funcx-websocket-service
+  tag: v0.3.9
+  pullPolicy: IfNotPresent

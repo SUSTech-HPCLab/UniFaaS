@@ -1,0 +1,2 @@
+nohup kubectl port-forward service/funcx-forwarder 55001:55001 55002:55002 55003:55003 --address="0.0.0.0" > forwarder.log &
+nohup kubectl port-forward service/funcx-funcx-web-service 5000:8000 --address="0.0.0.0"  > webservice.log &

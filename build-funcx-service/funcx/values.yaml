@@ -1,0 +1,98 @@
+# Default values for funcx.
+# This is a YAML-formatted file.
+
+# If this is provided, it must follow the example shown in example_secrets.yaml
+# The chart will mount environment variables from here into the app.
+secrets:
+
+ingress:
+  enabled: false
+  host: uc.ssl-hep.org
+
+storage:
+  s3Bucket: funcx
+  redisThreshold: 20000
+  awsSecrets:
+  s3ServiceAccount:
+
+webService:
+  image: funcx/web-service
+  tag: main
+  pullPolicy: Always
+
+  loglevel: DEBUG
+
+  advertisedRedisPort: 6379
+  advertisedRedisHost: localhost
+
+  replicas: 1
+  globusClient: <<your app client>>
+  globusKey: <<your app key>>
+
+endpoint:
+  enabled: true
+
+funcx_endpoint:
+  tag: main
+  funcXServiceAddress: http://funcx-funcx-web-service:8000
+  pullPolicy: Always
+
+forwarder:
+  enabled: true
+  image: funcx/forwarder
+  tag: main
+  pullPolicy: IfNotPresent
+  tasksPort: 55001
+  resultsPort: 55002
+  commandsPort: 55003
+  advertise_ip: 127.0.0.1
+
+containerService:
+  enbabled: false
+  image: funcx/container-service
+  tag: restore_docker_push
+  pullPolicy: IfNotPresent
+  replicas: 1
+
+# External services - these should be included for development environment
+# but on EKS we usually use the Amazon supported services
+services:
+  postgres:
+    enabled: true
+    externalURI: sqlite:////sqlite/app.db
+  redis:
+    enabled: true
+    externalHost:
+    externalPort: 6379
+  rabbitmq:
+    enabled: true
+    externalHost: rabbitmq
+
+postgresql:
+  postgresqlUsername: funcx
+  postgresqlPassword: leftfoot1
+  postgresqlDatabase: public
+
+  persistence:
+    enabled: false
+
+redis:
+  usePassword: false
+  master:
+    persistence:
+      enabled: false
+  slave:
+    persistence:
+      enabled: false
+
+rabbitmq:
+  auth:
+    username: funcx
+    password: rabbitmq
+  persistence:
+    enabled: false
+
+websocketService:
+  image: funcx/funcx-websocket-service
+  tag: main
+  pullPolicy: Always

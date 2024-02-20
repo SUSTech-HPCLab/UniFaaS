@@ -1,0 +1,34 @@
+{{- if .Values.forwarder.enabled -}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-forwarder
+spec:
+  ports:
+   - port: 8080
+     targetPort: 8080
+     name: "rest"
+     protocol: TCP
+   - port: {{ .Values.forwarder.tasksPort }}
+     targetPort: {{ .Values.forwarder.tasksPort }}
+     name: "zmq1"
+     protocol: TCP
+     #nodePort: {{ .Values.forwarder.tasksPort }}
+   - port: {{ add .Values.forwarder.resultsPort 0 }}
+     targetPort: {{ add .Values.forwarder.resultsPort 0 }}
+     name: "zmq2"
+     protocol: TCP
+     #nodePort: {{ add .Values.forwarder.resultsPort 0}}
+   - port: {{ add .Values.forwarder.commandsPort 0}}
+     targetPort: {{ add .Values.forwarder.commandsPort 0 }}
+     name: "zmq3"
+     protocol: TCP
+     #nodePort: {{ add .Values.forwarder.commandsPort 0 }}
+
+  selector:
+    app: {{ .Release.Name }}-forwarder
+  type: ClusterIP
+  #type: NodePort
+
+  {{- end }}

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-web-service-config
+  labels:
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    app: {{ .Release.Name }}
+data:
+  app.conf: |
+    ENV = "development"
+
+    {{ if .Values.services.redis.enabled }}
+    REDIS_PORT = 6379
+    REDIS_HOST = "{{ .Release.Name }}-redis-master"
+    {{ else }}
+    REDIS_PORT = {{  .Values.services.redis.externalPort }}
+    REDIS_HOST = "{{  .Values.services.redis.externalHost }}"
+    {{ end }}
+
+    ADVERTISED_REDIS_PORT = "{{ .Values.webService.advertisedRedisPort }}"
+    ADVERTISED_REDIS_HOST = "{{ .Values.webService.advertisedRedisHost }}"
+    HOSTNAME = "Not Used"
+    GLOBUS_CLIENT = "{{ .Values.webService.globusClient }}"
+    GLOBUS_KEY = "{{ .Values.webService.globusKey }}"
+
+    {{ if .Values.services.postgres.enabled }}
+    SQLALCHEMY_DATABASE_URI = 'postgresql://{{  .Values.postgresql.postgresqlUsername }}:{{ .Values.postgresql.postgresqlPassword }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.postgresqlDatabase }}'
+    {{ else }}
+    SQLALCHEMY_DATABASE_URI = '{{  .Values.services.postgres.externalURI }}'
+    {{ end }}
+
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    DB_NAME = "{{ .Values.postgresql.postgresqlDatabase }}"
+    DB_USER = "{{ .Values.postgresql.postgresqlUsername }}"
+    DB_PASSWORD = "{{ .Values.postgresql.postgresqlPassword }}"
+    DB_HOST = "{{ .Release.Name }}-postgresql"
+
+    FORWARDER_IP = "{{ .Release.Name }}-forwarder"
+
+    {{- if .Values.containerService.enabled }}
+    CONTAINER_SERVICE_ENABLED = True
+    CONTAINER_SERVICE = "http://{{ .Release.Name }}-funcx-container-service:8000"
+    {{- else }}
+    CONTAINER_SERVICE_ENABLED = False
+    {{- end }}

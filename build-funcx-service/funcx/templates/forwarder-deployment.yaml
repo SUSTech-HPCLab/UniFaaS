@@ -1,0 +1,108 @@
+{{- if .Values.forwarder.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-forwarder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-forwarder
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-forwarder
+    spec:
+      {{- if .Values.storage.s3ServiceAccount }}
+      serviceAccountName: {{- .Values.storage.s3ServiceAccount }}
+      {{- end }}
+      hostNetwork: false
+      containers:
+      - name: {{ .Release.Name }}-forwarder
+        image: {{ .Values.forwarder.image }}:{{ .Values.forwarder.tag }}
+        env:
+        - name: REDIS_HOST
+    {{- if .Values.services.redis.enabled }}
+          value: ""
+    {{- else }}
+          value: "{{  .Values.services.redis.externalHost }}"
+    {{- end }}
+        - name: REDIS_PORT
+    {{- if .Values.services.redis.enabled }}
+          value: "6379"
+    {{- else }}
+          value: "{{  .Values.services.redis.externalPort }}"
+    {{- end }}
+        - name: RABBITMQ_URI
+    {{- if .Values.services.rabbitmq.enabled }}
+          value: ""
+    {{- else }}
+          value: "{{  .Values.services.rabbitmq.externalURI }}"
+    {{- end }}
+    {{- if not .Values.forwarder.useAWSMetadataServer }}
+        - name: ADVERTISED_FORWARDER_ADDRESS
+          value: "{{ .Values.forwarder.advertise_ip}}"
+    {{- end }}
+        - name: TASKS_PORT
+          value: "{{ .Values.forwarder.tasksPort }}"
+        - name: RESULTS_PORT
+          value: "{{ .Values.forwarder.resultsPort }}"
+        - name: COMMANDS_PORT
+          value: "{{ .Values.forwarder.commandsPort }}"
+
+    {{- if  .Values.storage.awsSecrets }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.storage.awsSecrets }}
+              key: AWS_SESSION_TOKEN
+    {{- end }}
+
+    {{- if  .Values.storage.s3Bucket }}
+        - name: FUNCX_S3_BUCKET_NAME
+          value: "{{ .Values.storage.s3Bucket }}"
+    {{- end }}
+    {{- if  .Values.storage.redisThreshold }}
+        - name: FUNCX_REDIS_STORAGE_THRESHOLD
+          value: "{{ .Values.storage.redisThreshold }}"
+    {{- end }}
+        tty: true
+        stdin: true
+        imagePullPolicy: {{ .Values.forwarder.pullPolicy }}
+        {{- if .Values.forwarder.resources }}
+        resources:
+{{ toYaml .Values.forwarder.resources | indent 10 }}
+        {{- end }}
+        ports:
+          - containerPort: 8080  # Forwarder REST port
+          - containerPort: {{ add .Values.forwarder.tasksPort 1 }}
+            hostPort: {{ add .Values.forwarder.tasksPort 1 }}
+          - containerPort: {{ add .Values.forwarder.resultsPort 1 }}
+            hostPort: {{ add .Values.forwarder.resultsPort 1 }}
+          - containerPort: {{ add .Values.forwarder.commandsPort 1 }}
+            hostPort: {{ add .Values.forwarder.commandsPort 1 }}
+          - containerPort: 55005 # Debug
+            hostPort: 55005
+        {{- if .Values.forwarder.server_cert }}
+        volumeMounts:
+        - name: funcx-forwarder-secret
+          mountPath: /home/funcx/.curve
+          readOnly: true
+        {{- end }}
+      {{- if .Values.forwarder.server_cert }}
+      volumes:
+      - name: funcx-forwarder-secret
+        secret:
+          secretName: funcx-forwarder-secrets
+      {{- end }}
+{{- end }}

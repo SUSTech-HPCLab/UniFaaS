@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-funcx-websocket-service
+{{- if .Values.ingress.use_alb }}
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /v2/health
+{{- end }}
+spec:
+  ports:
+   - port: 6000
+     targetPort: 6000
+     name: "tcp"
+     protocol: TCP
+  selector:
+    app: {{ .Release.Name }}-funcx-websocket-service
+  type: ClusterIP
