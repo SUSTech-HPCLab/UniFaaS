@@ -13,3 +13,8 @@ Here is the architecture of UniFaaS. See more details in our paper.
 
 ## Declaration
 **The execution backend of UniFaaS** is built upon funcx v0.3.4 but is **not compatible** with the official funcx version. If you wish to run the UniFaaS demo, you will need to follow the steps below to build a special version of the funcx web-service and special funcx endpoint. The client part of UniFaaS is based on Parsl v1.3.0, and we have only retained the necessary functionalities.
+
+## Project Structure
+- `build-funcx-service`: Since UniFaaS uses a modified version of the funcX service, if you want to run UniFaaS, you need to read the README.md in this folder and deploy a special funcX service in a Kubernetes cluster.
+- `unifaas_endpoint`: The existing official funcX endpoints are not compatible with UniFaaS. You need to deploy the code from this folder to the machine where the endpoint will be installed.
+- `unifaas`: The core code for UniFaaS, which is introduced in our paper. It can schedule and submit workflows to the endpoint.
