@@ -7,24 +7,20 @@ from queue import Queue
 from enum import Enum
 import time
 from unifaas.dataflow.helper.graph_helper import graphHelper
-from functools import partial
 import logging 
-import concurrent.futures
 from concurrent.futures import Future
 from unifaas.dataflow.helper.execution_predictor import ExecutionPredictor
 from unifaas.dataflow.helper.transfer_predictor import TransferPredictor
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.data_transfer_management import DataTransferManager
 from unifaas.dataflow.schedule_strategy.heft import heft_schedule_entry
-from unifaas.dataflow.schedule_strategy.hybrid import hybrid_scheduling
+from unifaas.dataflow.schedule_strategy.ic_optimal import ic_optimal_scheduling
 from unifaas.dataflow.schedule_strategy.dynamic_heft import dynamic_heft_scheduling
 from unifaas.dataflow.schedule_strategy.auto import AutoScheduling
-from unifaas.dataflow.schedule_strategy.ep_selection import DataAwareSelection
-from funcx.sdk.file import RemoteFile, RemoteDirectory
+from unifaas.dataflow.schedule_strategy.ep_selection import GreedySelection
 from unifaas.dataflow.futures import AppFuture
-from collections import deque
 SCHEDULING_STRATEGY = ["RANDOM", "DFS","DATA", "FIFO","DHEFT"]
-DEPRECATED_STRATEGY = ["DEGREE", "ADVANCE","HEFT", "HEFT+", "AUTO","HYBRID"]
+DEPRECATED_STRATEGY = ["ADVANCE","HEFT", "AUTO","IC_Opt"]
 exp_logger = logging.getLogger("experiment")
 
 
@@ -89,10 +85,10 @@ class Scheduler:
         for ep in self.resources.keys():
             self.data_ready_queue_dict[ep] = PriorityQueue()
 
-        if self.scheduling_strategy == "HYBRID":
-            self.data_aware_selection = DataAwareSelection(self.resource_poller, self.execution_predictor, self.transfer_predictor, self.data_manager, "IC")
+        if self.scheduling_strategy == "IC_Opt":
+            self.ep_selection = GreedySelection(self.resource_poller, self.execution_predictor, self.transfer_predictor, self.data_manager, "IC")
         if self.scheduling_strategy == "DHEFT":
-            self.data_aware_selection = DataAwareSelection(self.resource_poller, self.execution_predictor, self.transfer_predictor, self.data_manager, "HEFT")
+            self.ep_selection = GreedySelection(self.resource_poller, self.execution_predictor, self.transfer_predictor, self.data_manager, "HEFT")
 
 
 
@@ -257,37 +253,31 @@ class Scheduler:
         self._kill_event.set()
         self._task_schedule_thread.join()
 
-    def hybrid_scheduling_entry(self):
+    def ic_optimal_scheduling_entry(self):
+        # Note: This function is deprecated, and not fully implemented.
+        # We did not mention this strategy in our paper (UniFaaS).
+        # See more information about the IC-Optimal scheduling in this paper
+        # Advances in IC-Scheduling Theory: Scheduling Expansive and Reductive DAGs and Scheduling DAGs via Duality
         time.sleep(0.5)
-        self.dynamic_adjust_strategy = "HYBRID_DATA"
-        task_execution_order,check_sufficient_info, peak_count, important_task_list = hybrid_scheduling(graphHelper, self.execution_predictor)
+        self.dynamic_adjust_strategy = "GREEDY"
+        task_execution_order,check_sufficient_info, peak_count, important_task_list = ic_optimal_scheduling(graphHelper, self.execution_predictor)
         for task in important_task_list:
             self.put_important_task_into_duplicated_queue(task)
         if task_execution_order.qsize() > 0:
-            exp_logger.info("[HYBRID] The length of task execution order is {}".format(task_execution_order.qsize()))
-        # ==== ONLY FOR DEBUGGING ====
-        self.data_aware_selection.assign_for_queue(task_execution_order)
+            exp_logger.info("[IC_Opt] The length of task execution order is {}".format(task_execution_order.qsize()))
+
+        self.ep_selection.assign_for_queue(task_execution_order)
         return
-
-
-        if not check_sufficient_info:
-            self.dynamic_adjust_strategy = "DATA"
-            self.data_locality_schedule(task_execution_order)
-        else:
-            # TODO
-            raise Exception("Not implemented yet")
-            #self.dynamic_adjust_strategy = "GREEDY"
-            #self.greedy_insertion.assign_for_queue(task_execution_order)
 
     def dynamic_heft_entry(self):
         time.sleep(0.5)
-        self.dynamic_adjust_strategy = "HYBRID_DATA"
+        self.dynamic_adjust_strategy = "GREEDY"
         task_execution_order,check_sufficient_info , ratio_result= dynamic_heft_scheduling(graphHelper, self.execution_predictor, self.transfer_predictor)
         if task_execution_order.qsize() > 0:
             exp_logger.info("[DynamicHEFT] The length of task execution order is {}".format(task_execution_order.qsize()))
             exp_logger.info("[DynamicHEFT] The ratio result is {}".format(ratio_result))
-        self.data_aware_selection.update_performance_ratio(ratio_result)
-        self.data_aware_selection.assign_for_queue(task_execution_order)
+        self.ep_selection.update_performance_ratio(ratio_result)
+        self.ep_selection.assign_for_queue(task_execution_order)
         return
 
         
@@ -311,9 +301,6 @@ class Scheduler:
             #     self.advance_schedule()
             # if self.scheduling_strategy == "HEFT":
             #     self.heft_schedule()
-            # if self.scheduling_strategy == "HEFT+":
-            #     self._init_eft_queue()
-            #     self.heft_plus()
             # if self.scheduling_strategy == "AUTO":
             #     strategy = self.auto_scheduling.select_strategy()
             #     if strategy == "HEFT":
@@ -325,8 +312,8 @@ class Scheduler:
             #         # after handling all the unknown tasks, switch back to HEFT
             #         self.auto_scheduling.AUTO_heft_schedule()
             #         self.scheduling_strategy = "NO_OP"
-            # if self.scheduling_strategy == "HYBRID":
-            #     self.hybrid_scheduling_entry()
+            # if self.scheduling_strategy == "IC_Opt":
+            #     self.ic_optimal_scheduling_entry()
             # if self.scheduling_strategy == "NO_OP":
             #     time.sleep(10)
 
@@ -706,49 +693,6 @@ class Scheduler:
                 cur_qsize -= 1
         time.sleep(5)
 
-    def heft_plus(self):
-        time.sleep(3)
-        fu_to_task = {}
-        pure_dag = {}
-        while time.time() - graphHelper.get_task_idle_since() < 10:
-            time.sleep(1)
-
-        cur_qsize = graphHelper.task_queue.qsize()
-
-        while cur_qsize > 0:
-            task_record = graphHelper.task_queue.get()
-            app_fu = task_record['app_fu']
-            fu_to_task[app_fu] = task_record
-            if app_fu not in pure_dag.keys():
-                pure_dag[app_fu] = []
-            for dep in task_record['depends']:
-                # make sure pred node is not scheduled.
-                if dep.task_def['status'] == States.scheduling: 
-                    if dep in pure_dag.keys():
-                        pure_dag[dep].append(app_fu)
-                    else:
-                        pure_dag[dep] = [app_fu]
-            cur_qsize -= 1
-        machines = self.resource_poller.get_real_time_status().keys()
-        exp_logger.info(f"Doing heft scheduling")
-        time_start = time.time()
-        _ , allocate_res = heft_schedule_entry(pure_dag, machines, fu_to_task, self.execution_predictor, self.transfer_predictor, self.resource_poller)
-        time_end = time.time()
-        exp_logger.info(f"Heft scheduling time: {time_end - time_start} with {len(allocate_res.keys())} tasks")
-
-        for fu in allocate_res.keys():
-            task_record = fu_to_task[fu]
-            not_done_deps = [ dep for dep in task_record['depends'] if not dep.done()]
-            if len(not_done_deps) <= 0:
-                self._stat_eft_info_before_managing(task_record)
-                task_record['status'] = States.data_managing
-                if not task_record['never_change']:
-                    task_record['executor'] = allocate_res[fu]
-                self.data_manager.handle_task_record_data_managing(task_record)
-            else:
-                task_record['status'] = States.dynamic_adjust
-                if not task_record['never_change']:
-                    task_record['executor'] = allocate_res[fu]
 
     def partition_by_ideal_worker_nums(self, tot_tasks, resource_rank):
         import math
@@ -803,9 +747,6 @@ class Scheduler:
 
 
     def dynamic_adjust(self, task_record, task_res):
-        # find all related
-        # TODO change all scheduling_strategy option into dynamic_adjust_strategy option in the future
-        # TODO It will support the change of scheduling strategy during the execution
         if self.scheduling_strategy == "RANDOM" or self.scheduling_strategy == "DFS":
             appfu = task_record['app_fu']
             child_task_fu_list = self.raw_graph[appfu]
@@ -815,7 +756,7 @@ class Scheduler:
                     if child['status'] == States.dynamic_adjust:
                         child['status'] = States.data_managing
                     self.data_manager.handle_task_record_data_managing(child, input_data=task_res, invoke=True)
-        elif self.scheduling_strategy == "ADVANCE" or self.scheduling_strategy == "HEFT+":
+        elif self.scheduling_strategy == "ADVANCE":
             tmp_exe = task_record['executor']
             # remove one element from the eft_queue
             if not self.eft_queue[tmp_exe].empty():
@@ -843,7 +784,7 @@ class Scheduler:
                     if child['status'] == States.dynamic_adjust:
                         child['status'] = States.data_managing
                     self.data_manager.handle_task_record_data_managing(child, input_data=task_res, invoke=True)
-        elif self.scheduling_strategy == "DATA" or  self.dynamic_adjust_strategy == "DATA" or self.dynamic_adjust_strategy == "HYBRID_DATA":
+        elif self.scheduling_strategy == "DATA" or  self.dynamic_adjust_strategy == "DATA" or self.dynamic_adjust_strategy == "GREEDY":
             appfu = task_record['app_fu']
             child_task_fu_list = self.raw_graph[appfu]
             child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
@@ -855,8 +796,8 @@ class Scheduler:
                         break
                 if all_done:
                     # send to DATA_ready_queue
-                    if self.dynamic_adjust_strategy == "HYBRID_DATA":
-                        self.data_aware_selection.put_task_record(child)
+                    if self.dynamic_adjust_strategy == "GREEDY":
+                        self.ep_selection.put_task_record(child)
                     else:
                         self.put_task_to_data_ready_queue(child)
 

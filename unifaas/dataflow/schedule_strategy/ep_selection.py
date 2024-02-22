@@ -23,7 +23,7 @@ class TaskWithPriority:
     def __lt__(self, other):
         return self.priority  > other.priority
 
-class DataAwareSelection:
+class GreedySelection:
 
     def __init__(self, resource_poller, execution_predictor, transfer_predictor, data_manager, priority_type):
         self.resource_poller = resource_poller
