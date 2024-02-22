@@ -138,11 +138,9 @@ def heft_schedule_entry(dag, resources, appfu_to_task, execution_predictor, tran
     # dependency should be checked
     cnt = 0
     init_commcost_before_allocate(tasks, prec, core_resources, transfer_predictor)
+    orders = {ep: [] for ep in core_resources}
     for task in reversed(tasks):
         allocate(task, orders, allocate_res, prec, computcost_with_predictor, commcost_with_predictor, transfer_predictor)
-        cnt += 1
-        if cnt % 100 == 0:
-            exp_logger.info(f"allocated {cnt} tasks")
     
     for key in allocate_res.keys():
         allocate_res[key] = parse_endpoint(allocate_res[key])
