@@ -7,6 +7,8 @@ from funcx.sdk.file import RemoteFile, RemoteDirectory
 import pandas as pd
 import numpy as np
 import pickle
+
+# sklearnx is an extension for Intel CPU
 from sklearnex import patch_sklearn
 patch_sklearn(verbose=False)
 logging.getLogger("sklearnex").setLevel(logging.CRITICAL)
@@ -56,8 +58,8 @@ class ExecutionPredictor:
     def add_root_logger_handler(self):
         '''
         **IMPORTANT**
-        skleanex will add a handler to root logger if there is no handler
-        The handler added by skleanex is very verbose
+        sklearnex will add a handler to root logger if there is no handler
+        The handler added by sklearnex is very verbose
         So we need to add a high level handler to root logger to suppress the log
         '''
         root_logger = logging.getLogger()
