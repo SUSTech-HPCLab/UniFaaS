@@ -1,3 +1,3 @@
 from unifaas.executors.funcx.executor import FuncXExecutor
 
-__all__ = ['FuncXExecutor']
+__all__ = ["FuncXExecutor"]

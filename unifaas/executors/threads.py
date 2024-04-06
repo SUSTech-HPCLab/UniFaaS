@@ -29,9 +29,15 @@ class ThreadPoolExecutor(NoStatusHandlingExecutor, RepresentationMixin):
     """
 
     @typeguard.typechecked
-    def __init__(self, label: str = 'threads', max_threads: int = 2,
-                 thread_name_prefix: str = '', storage_access: List[Any] = None,
-                 working_dir: Optional[str] = None, managed: bool = True):
+    def __init__(
+        self,
+        label: str = "threads",
+        max_threads: int = 2,
+        thread_name_prefix: str = "",
+        storage_access: List[Any] = None,
+        working_dir: Optional[str] = None,
+        managed: bool = True,
+    ):
         NoStatusHandlingExecutor.__init__(self)
         self.label = label
         self._scaling_enabled = False
@@ -46,8 +52,9 @@ class ThreadPoolExecutor(NoStatusHandlingExecutor, RepresentationMixin):
         self.managed = managed
 
     def start(self):
-        self.executor = cf.ThreadPoolExecutor(max_workers=self.max_threads,
-                                              thread_name_prefix=self.thread_name_prefix)
+        self.executor = cf.ThreadPoolExecutor(
+            max_workers=self.max_threads, thread_name_prefix=self.thread_name_prefix
+        )
 
     @property
     def scaling_enabled(self):
@@ -61,10 +68,14 @@ class ThreadPoolExecutor(NoStatusHandlingExecutor, RepresentationMixin):
 
         """
         if resource_specification:
-            logger.error("Ignoring the resource specification. "
-                         "Parsl resource specification is not supported in ThreadPool Executor. "
-                         "Please check WorkQueue Executor if resource specification is needed.")
-            raise UnsupportedFeatureError('resource specification', 'ThreadPool Executor', 'WorkQueue Executor')
+            logger.error(
+                "Ignoring the resource specification. "
+                "Parsl resource specification is not supported in ThreadPool Executor. "
+                "Please check WorkQueue Executor if resource specification is needed."
+            )
+            raise UnsupportedFeatureError(
+                "resource specification", "ThreadPool Executor", "WorkQueue Executor"
+            )
 
         return self.executor.submit(func, *args, **kwargs)
 

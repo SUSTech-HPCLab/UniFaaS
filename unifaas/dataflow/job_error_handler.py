@@ -20,7 +20,9 @@ class JobErrorHandler(object):
         if not custom_handling:
             self.simple_error_handler(es.executor, es.status, 3)
 
-    def simple_error_handler(self, executor: UniFaaSExecutor, status: Dict[str, JobStatus], threshold: int):
+    def simple_error_handler(
+        self, executor: UniFaaSExecutor, status: Dict[str, JobStatus], threshold: int
+    ):
         (total_jobs, failed_jobs) = self.count_jobs(status)
         if total_jobs >= threshold and failed_jobs == total_jobs:
             executor.set_bad_state_and_fail_all(self.get_error(status))

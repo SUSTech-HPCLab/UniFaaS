@@ -62,8 +62,6 @@ class States(IntEnum):
     further progress (to a done/failed state)."""
 
 
-
-
 FINAL_STATES = [States.exec_done, States.memo_done, States.failed, States.dep_fail]
 """States from which we will never move to another state, because the job has
 either definitively completed or failed."""
