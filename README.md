@@ -20,3 +20,18 @@ Here is the architecture of UniFaaS. See more details in our paper.
 - `build-funcx-service`: Since UniFaaS uses a modified version of the funcX service, if you want to run UniFaaS, you need to read the README.md in this folder and deploy a special funcX service in a Kubernetes cluster.
 - `unifaas_endpoint`: The existing official funcX endpoints are not compatible with UniFaaS. You need to deploy the code from this folder to the machine where the endpoint will be installed.
 - `unifaas`: The core code for UniFaaS, which is introduced in our paper. It can schedule and submit workflows to the endpoint.
+
+
+## Citation
+Our paper is accepted to IPDPS2024. You can cite our project in this arxiv version.
+
+```
+@misc{li2024unifaas,
+      title={UniFaaS: Programming across Distributed Cyberinfrastructure with Federated Function Serving}, 
+      author={Yifei Li and Ryan Chard and Yadu Babuji and Kyle Chard and Ian Foster and Zhuozhao Li},
+      year={2024},
+      eprint={2403.19257},
+      archivePrefix={arXiv},
+      primaryClass={cs.DC}
+}
+```
