@@ -55,9 +55,14 @@ class UniFaaSExecutor(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def submit(self, func: Callable, resource_specification: Dict[str, Any], *args: Any, **kwargs: Any) -> Future:
-        """Submit.
-        """
+    def submit(
+        self,
+        func: Callable,
+        resource_specification: Dict[str, Any],
+        *args: Any,
+        **kwargs: Any
+    ) -> Future:
+        """Submit."""
         pass
 
     @abstractmethod
@@ -103,7 +108,6 @@ class UniFaaSExecutor(metaclass=ABCMeta):
         """
         pass
 
-
     def monitor_resources(self) -> bool:
         """Should resource monitoring happen for tasks on running on this executor?
 
@@ -113,8 +117,6 @@ class UniFaaSExecutor(metaclass=ABCMeta):
         This function allows resource monitoring to be disabled per executor implementation.
         """
         return True
-
-
 
     @property
     @abstractmethod
@@ -154,7 +156,6 @@ class UniFaaSExecutor(metaclass=ABCMeta):
         """
         pass
 
-
         pass
 
     @abstractmethod
@@ -190,8 +191,7 @@ class UniFaaSExecutor(metaclass=ABCMeta):
 
     @property
     def run_dir(self) -> str:
-        """Path to the run directory.
-        """
+        """Path to the run directory."""
         return self._run_dir
 
     @run_dir.setter
@@ -200,8 +200,7 @@ class UniFaaSExecutor(metaclass=ABCMeta):
 
     @property
     def hub_address(self) -> Optional[str]:
-        """Address to the Hub for monitoring.
-        """
+        """Address to the Hub for monitoring."""
         return self._hub_address
 
     @hub_address.setter
@@ -210,8 +209,7 @@ class UniFaaSExecutor(metaclass=ABCMeta):
 
     @property
     def hub_port(self) -> Optional[int]:
-        """Port to the Hub for monitoring.
-        """
+        """Port to the Hub for monitoring."""
         return self._hub_port
 
     @hub_port.setter

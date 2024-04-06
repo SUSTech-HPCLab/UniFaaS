@@ -64,28 +64,30 @@ class Config(RepresentationMixin):
     """
 
     @typeguard.typechecked
-    def __init__(self,
-                 executors: Optional[List[UniFaaSExecutor]] = None,
-                 checkpoint_files: Optional[List[str]] = None,
-                 checkpoint_mode: Optional[str] = None,
-                 checkpoint_period: Optional[str] = None,
-                 garbage_collect: bool = True,
-                 internal_tasks_max_threads: int = 10,
-                 retries: int = 0,
-                 retry_handler: Optional[Callable] = None,
-                 run_dir: str = 'runinfo',
-                 strategy: Optional[str] = 'simple',
-                 max_idletime: float = 120.0,
-                 usage_tracking: bool = False, 
-                 initialize_logging: bool = True,
-                 enable_schedule: bool = False,
-                 enable_execution_recorder: bool = False,
-                 transfer_type: Optional[str] = "rsync",
-                 password_file: Optional[str] = None,
-                 bandwidth_info: Optional[dict] = None,
-                 scheduling_strategy: Optional[str] = "RANDOM",
-                 workflow_name: Optional[str] = "default",
-                 enable_duplicate: bool = False,) :
+    def __init__(
+        self,
+        executors: Optional[List[UniFaaSExecutor]] = None,
+        checkpoint_files: Optional[List[str]] = None,
+        checkpoint_mode: Optional[str] = None,
+        checkpoint_period: Optional[str] = None,
+        garbage_collect: bool = True,
+        internal_tasks_max_threads: int = 10,
+        retries: int = 0,
+        retry_handler: Optional[Callable] = None,
+        run_dir: str = "runinfo",
+        strategy: Optional[str] = "simple",
+        max_idletime: float = 120.0,
+        usage_tracking: bool = False,
+        initialize_logging: bool = True,
+        enable_schedule: bool = False,
+        enable_execution_recorder: bool = False,
+        transfer_type: Optional[str] = "rsync",
+        password_file: Optional[str] = None,
+        bandwidth_info: Optional[dict] = None,
+        scheduling_strategy: Optional[str] = "RANDOM",
+        workflow_name: Optional[str] = "default",
+        enable_duplicate: bool = False,
+    ):
         if executors is None:
             executors = [ThreadPoolExecutor()]
         self.executors = executors
@@ -95,14 +97,18 @@ class Config(RepresentationMixin):
             raise ConfigurationError("Checkpoint is currently not supported")
         if checkpoint_period is not None:
             if checkpoint_mode is None:
-                logger.debug('The requested `checkpoint_period={}` will have no effect because `checkpoint_mode=None`'.format(
-                    checkpoint_period)
+                logger.debug(
+                    "The requested `checkpoint_period={}` will have no effect because `checkpoint_mode=None`".format(
+                        checkpoint_period
+                    )
                 )
-            elif checkpoint_mode != 'periodic':
-                logger.debug("Requested checkpoint period of {} only has an effect with checkpoint_mode='periodic'".format(
-                    checkpoint_period)
+            elif checkpoint_mode != "periodic":
+                logger.debug(
+                    "Requested checkpoint period of {} only has an effect with checkpoint_mode='periodic'".format(
+                        checkpoint_period
+                    )
                 )
-        if checkpoint_mode == 'periodic' and checkpoint_period is None:
+        if checkpoint_mode == "periodic" and checkpoint_period is None:
             checkpoint_period = "00:30:00"
         self.checkpoint_period = checkpoint_period
         self.garbage_collect = garbage_collect
@@ -132,6 +138,9 @@ class Config(RepresentationMixin):
         labels = [e.label for e in executors]
         duplicates = [e for n, e in enumerate(labels) if e in labels[:n]]
         if len(duplicates) > 0:
-            raise ConfigurationError('Executors must have unique labels ({})'.format(
-                ', '.join(['label={}'.format(repr(d)) for d in duplicates])))
+            raise ConfigurationError(
+                "Executors must have unique labels ({})".format(
+                    ", ".join(["label={}".format(repr(d)) for d in duplicates])
+                )
+            )
         self._executors = executors

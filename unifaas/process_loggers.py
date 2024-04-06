@@ -15,7 +15,6 @@ def wrap_with_logs(fn: Optional[Callable] = None, target: str = __name__) -> Cal
     """
 
     def decorator(func):
-
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
             assert func is not None

@@ -4,8 +4,7 @@ from typing import List
 
 
 class OptionalModuleMissing(UniFaaSError):
-    ''' Error raised when a required module is missing for a optional/extra component
-    '''
+    """Error raised when a required module is missing for a optional/extra component"""
 
     def __init__(self, module_names: List[str], reason: str):
         self.module_names = module_names

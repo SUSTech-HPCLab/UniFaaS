@@ -15,6 +15,7 @@ UNIFAAS_HOME = os.path.join(pathlib.Path.home(), ".unifaas")
 
 logger = logging.getLogger("unifaas")
 
+
 class ExecutionRecorder:
     """
     Record the execution (runtime) info for each task.
@@ -23,17 +24,32 @@ class ExecutionRecorder:
 
     def __init__(self, record_dir=None):
         # Parsl home directory ~/.unifaas
-        self._UNIFAAS_HOME =  os.path.join(pathlib.Path.home(), ".unifaas")
+        self._UNIFAAS_HOME = os.path.join(pathlib.Path.home(), ".unifaas")
         if record_dir is None:
             self._RECORD_DIR = self._UNIFAAS_HOME
-        self.database= os.path.join(self._RECORD_DIR, "execution_history.db") #store all function execution record
+        self.database = os.path.join(
+            self._RECORD_DIR, "execution_history.db"
+        )  # store all function execution record
         self.table_name = "execution_history"
-        self.record_format =  ["func_name", "input_size", "mem_avaliable", "cpu_percent", \
-            "cpu_cores", "cpu_freqs_max","mem_usage","execution_time","output_size","insert_time","predict_time"]
+        self.record_format = [
+            "func_name",
+            "input_size",
+            "mem_avaliable",
+            "cpu_percent",
+            "cpu_cores",
+            "cpu_freqs_max",
+            "mem_usage",
+            "execution_time",
+            "output_size",
+            "insert_time",
+            "predict_time",
+        ]
         self.distinct_key = "func_name"
         self._init_execution_record_dir()
         self.sql_queue = Queue()
-        self.write_record_thread = threading.Thread(target=self.writer_record_periodically, args=())
+        self.write_record_thread = threading.Thread(
+            target=self.writer_record_periodically, args=()
+        )
         self._kill_event = threading.Event()
         self.write_record_thread.daemon = True
         self.write_record_thread.start()
@@ -41,7 +57,6 @@ class ExecutionRecorder:
     def kill_writer(self):
         self.sql_queue.put("kill")
         self.write_record_thread.join()
-        
 
     def writer_record_periodically(self):
         kill_flag = False
@@ -60,7 +75,9 @@ class ExecutionRecorder:
                 cursor.execute(sql)
                 conn.commit()
             if cur_qsize > 0:
-                logger.info(f"[Recorder] Write {cur_qsize} execution records to database")
+                logger.info(
+                    f"[Recorder] Write {cur_qsize} execution records to database"
+                )
         logger.info(f"[Recorder] ExecutionRecorder is killed")
 
     def _create_table_sql(self):
@@ -94,9 +111,11 @@ class ExecutionRecorder:
     def _init_execution_record_dir(self):
         """Initialize the execution record directory"""
         if not os.path.exists(self._UNIFAAS_HOME):
-            logger.info(f"[Recorder] There is no record directory, create one \
-                {self._RECORD_DIR}")
-            os.makedirs(name=self._UNIFAAS_HOME, exist_ok=True, mode=0o777)       
+            logger.info(
+                f"[Recorder] There is no record directory, create one \
+                {self._RECORD_DIR}"
+            )
+            os.makedirs(name=self._UNIFAAS_HOME, exist_ok=True, mode=0o777)
         if not os.path.exists(self._RECORD_DIR):
             os.makedirs(name=self._RECORD_DIR, exist_ok=True, mode=0o777)
         if not os.path.exists(self.database):
@@ -108,13 +127,20 @@ class ExecutionRecorder:
             cursor.execute(sql)
             conn.commit()
 
-        
-    def write_record(self,task_id, result):
+    def write_record(self, task_id, result):
         """Write the execution record to the execution record directory"""
-        if 'cpu_freqs_max' in result.keys() and 'cpu_freqs_min' in result.keys() and 'cpu_freqs_current' in result.keys():
-            cpu_max = max(result['cpu_freqs_max'], result['cpu_freqs_min'], result['cpu_freqs_current'])
-            result['cpu_freqs_max'] = cpu_max
-            result['insert_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if (
+            "cpu_freqs_max" in result.keys()
+            and "cpu_freqs_min" in result.keys()
+            and "cpu_freqs_current" in result.keys()
+        ):
+            cpu_max = max(
+                result["cpu_freqs_max"],
+                result["cpu_freqs_min"],
+                result["cpu_freqs_current"],
+            )
+            result["cpu_freqs_max"] = cpu_max
+            result["insert_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             info_list = [result.get(s) for s in self.record_format]
             sql = self._insert_sql(info_list)
@@ -141,15 +167,16 @@ class ExecutionRecorder:
         result = cursor.fetchall()
         return result
 
-
     def select_record_for_cpu_combination(self):
         conn = sqlite3.connect(self.database, check_same_thread=False)
         cursor = conn.cursor()
-   
+
         cursor.execute("SELECT DISTINCT func_name FROM execution_history")
         func_names = [row[0] for row in cursor.fetchall()]
 
-        cursor.execute("SELECT DISTINCT cpu_cores, cpu_freqs_max FROM execution_history")
+        cursor.execute(
+            "SELECT DISTINCT cpu_cores, cpu_freqs_max FROM execution_history"
+        )
         cpu_combinations = cursor.fetchall()
 
         data = {}
@@ -161,14 +188,13 @@ class ExecutionRecorder:
             for func_name in func_names:
                 cursor.execute(
                     "SELECT * FROM execution_history WHERE cpu_cores=? AND cpu_freqs_max>=? AND cpu_freqs_max<=? AND func_name=?",
-                    (cpu_combination[0], freq, freq+1, func_name)
+                    (cpu_combination[0], freq, freq + 1, func_name),
                 )
                 data[cpu_str][func_name] = cursor.fetchall()
 
         cursor.close()
         conn.close()
         return data
-
 
 
 class TransferRecorder(ExecutionRecorder):
@@ -178,17 +204,27 @@ class TransferRecorder(ExecutionRecorder):
     """
 
     def __init__(self, record_dir=None):
-        self._UNIFAAS_HOME =  os.path.join(pathlib.Path.home(), ".unifaas")
+        self._UNIFAAS_HOME = os.path.join(pathlib.Path.home(), ".unifaas")
         if record_dir is None:
             self._RECORD_DIR = self._UNIFAAS_HOME
         else:
             self._RECORD_DIR = os.path.join(self._UNIFAAS_HOME, "transfer_record")
-        self.record_format = ["src_address", "dest_address", "speed", "size", "fly_time", "total_time","prediction_time"]
+        self.record_format = [
+            "src_address",
+            "dest_address",
+            "speed",
+            "size",
+            "fly_time",
+            "total_time",
+            "prediction_time",
+        ]
         self.database = os.path.join(self._RECORD_DIR, "transfer_history.db")
         self.table_name = "transfer_history"
         self._init_db()
         self.sql_queue = Queue()
-        self.write_record_thread = threading.Thread(target=self.writer_record_periodically, args=())
+        self.write_record_thread = threading.Thread(
+            target=self.writer_record_periodically, args=()
+        )
         self.write_record_thread.daemon = True
         self.write_record_thread.start()
 
@@ -205,9 +241,10 @@ class TransferRecorder(ExecutionRecorder):
                 cursor.execute(sql)
                 conn.commit()
             if cur_qsize > 0:
-                logger.info(f"[Recorder] Write {cur_qsize} transfer records to database")
+                logger.info(
+                    f"[Recorder] Write {cur_qsize} transfer records to database"
+                )
             time.sleep(5)
-    
 
     def _create_table_sql(self):
         record_format = self.record_format
@@ -233,15 +270,30 @@ class TransferRecorder(ExecutionRecorder):
             cursor.execute(sql)
             conn.commit()
 
-
-    def write_record(self,src_address, dest_address, speed, size, fly_time, total_time,prediction_time):
+    def write_record(
+        self,
+        src_address,
+        dest_address,
+        speed,
+        size,
+        fly_time,
+        total_time,
+        prediction_time,
+    ):
         try:
-            info_list = [src_address, dest_address, speed, size, fly_time, total_time,prediction_time]
+            info_list = [
+                src_address,
+                dest_address,
+                speed,
+                size,
+                fly_time,
+                total_time,
+                prediction_time,
+            ]
             sql = self._insert_sql(info_list)
             self.sql_queue.put(sql)
         except Exception as e:
             logger.warn(f"[Recorder] Write execution record failed: {e}")
-        
 
 
 def write_workflow_prediction_result(file_path, info):
@@ -250,9 +302,8 @@ def write_workflow_prediction_result(file_path, info):
     with open(file_path, "a") as f:
         for i in range(len(info) - 1):
             info_str += f"{info[i]},"
-        if isinstance(info[-1],dict):
+        if isinstance(info[-1], dict):
             for key, value in info[-1].items():
                 info_str += f"{key}|{value}|"
             info_str += "\n"
         f.write(info_str)
-

@@ -28,9 +28,9 @@ class UnsupportedFeatureError(ExecutorError):
 
     def __str__(self):
         return "The {} feature is unsupported in {}. \
-Please checkout {} for this feature".format(self.feature,
-                                            self.current_executor,
-                                            self.target_executor)
+Please checkout {} for this feature".format(
+            self.feature, self.current_executor, self.target_executor
+        )
 
 
 class ScalingFailed(ExecutorError):
@@ -42,8 +42,7 @@ class ScalingFailed(ExecutorError):
 
 
 class DeserializationError(ExecutorError):
-    """ Failure at the Deserialization of results/exceptions from remote workers
-    """
+    """Failure at the Deserialization of results/exceptions from remote workers"""
 
     def __init__(self, reason):
         self.reason = reason
@@ -53,21 +52,20 @@ class DeserializationError(ExecutorError):
 
 
 class SerializationError(ExecutorError):
-    """ Failure to serialize data arguments for the tasks
-    """
+    """Failure to serialize data arguments for the tasks"""
 
     def __init__(self, fname):
         self.fname = fname
         self.troubleshooting = "https://unifaas.readthedocs.io/en/latest/faq.html#addressing-serializationerror"
 
     def __str__(self):
-        return "Failed to serialize data objects for {}. Refer {} ".format(self.fname,
-                                                                           self.troubleshooting)
+        return "Failed to serialize data objects for {}. Refer {} ".format(
+            self.fname, self.troubleshooting
+        )
 
 
 class BadMessage(ExecutorError):
-    """ Mangled/Poorly formatted/Unsupported message received
-    """
+    """Mangled/Poorly formatted/Unsupported message received"""
 
     def __init__(self, reason):
         self.reason = reason

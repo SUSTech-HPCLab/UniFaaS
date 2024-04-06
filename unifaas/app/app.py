@@ -22,7 +22,14 @@ class AppBase(metaclass=ABCMeta):
 
     """
 
-    def __init__(self, func, data_flow_kernel=None, executors='all', cache=False, ignore_for_cache=None):
+    def __init__(
+        self,
+        func,
+        data_flow_kernel=None,
+        executors="all",
+        cache=False,
+        ignore_for_cache=None,
+    ):
         """Construct the App object.
 
         Args:
@@ -46,22 +53,27 @@ class AppBase(metaclass=ABCMeta):
         self.cache = cache
         self.ignore_for_cache = ignore_for_cache
         if not (isinstance(executors, list) or isinstance(executors, str)):
-            logger.error("App {} specifies invalid executor option, expects string or list".format(
-                func.__name__))
+            logger.error(
+                "App {} specifies invalid executor option, expects string or list".format(
+                    func.__name__
+                )
+            )
 
         params = signature(func).parameters
 
         self.kwargs = {}
-        if 'stdout' in params:
-            self.kwargs['stdout'] = params['stdout'].default
-        if 'stderr' in params:
-            self.kwargs['stderr'] = params['stderr'].default
-        if 'walltime' in params:
-            self.kwargs['walltime'] = params['walltime'].default
-        if 'unifaas_resource_specification' in params:
-            self.kwargs['unifaas_resource_specification'] = params['unifaas_resource_specification'].default
-        self.outputs = params['outputs'].default if 'outputs' in params else []
-        self.inputs = params['inputs'].default if 'inputs' in params else []
+        if "stdout" in params:
+            self.kwargs["stdout"] = params["stdout"].default
+        if "stderr" in params:
+            self.kwargs["stderr"] = params["stderr"].default
+        if "walltime" in params:
+            self.kwargs["walltime"] = params["walltime"].default
+        if "unifaas_resource_specification" in params:
+            self.kwargs["unifaas_resource_specification"] = params[
+                "unifaas_resource_specification"
+            ].default
+        self.outputs = params["outputs"].default if "outputs" in params else []
+        self.inputs = params["inputs"].default if "inputs" in params else []
 
     @abstractmethod
     def __call__(self, *args, **kwargs):
@@ -69,13 +81,15 @@ class AppBase(metaclass=ABCMeta):
 
 
 @typeguard.typechecked
-def python_app(function=None,
-               data_flow_kernel: Optional[DataFlowKernel] = None,
-               cache: bool = False,
-               executors: Union[List[str], Literal['all']] = 'all',
-               ignore_for_cache: Optional[List[str]] = None,
-               join: bool = False,
-               never_change: bool = False):
+def python_app(
+    function=None,
+    data_flow_kernel: Optional[DataFlowKernel] = None,
+    cache: bool = False,
+    executors: Union[List[str], Literal["all"]] = "all",
+    ignore_for_cache: Optional[List[str]] = None,
+    join: bool = False,
+    never_change: bool = False,
+):
     """Decorator function for making python apps.
 
     Parameters
@@ -101,14 +115,18 @@ def python_app(function=None,
 
     def decorator(func):
         def wrapper(f):
-            return PythonApp(f,
-                             data_flow_kernel=data_flow_kernel,
-                             cache=cache,
-                             executors=executors,
-                             ignore_for_cache=ignore_for_cache,
-                             join=join,
-                             never_change=never_change)
+            return PythonApp(
+                f,
+                data_flow_kernel=data_flow_kernel,
+                cache=cache,
+                executors=executors,
+                ignore_for_cache=ignore_for_cache,
+                join=join,
+                never_change=never_change,
+            )
+
         return wrapper(func)
+
     if function is not None:
         return decorator(function)
     return decorator

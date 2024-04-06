@@ -4,15 +4,13 @@ from queue import Queue
 from unifaas.dataflow.helper.graph_helper import GraphHelper
 
 
-class ICOptimalScheduling():
-
-    def __init__(self,execution_predictor):
+class ICOptimalScheduling:
+    def __init__(self, execution_predictor):
         self.init_resource()
         self.predictor = execution_predictor
         self.important_task_percentage = 0.05
         self.advanced = False
-        
-    
+
     def init_resource(self):
         self.id_to_task = {}
         self.fu_to_task = {}
@@ -21,7 +19,6 @@ class ICOptimalScheduling():
         self.pure_dag = {}
         self.indegree_dict = {}
         self.func_dict = {}
-
 
     def calculate_peak_task_count(self):
         peak_task_count = len(self.source_nodes)
@@ -40,34 +37,45 @@ class ICOptimalScheduling():
                         q.put(child)
         return peak_task_count
 
-    
     def update_resource(self, graphHelper):
         self.init_resource()
-        self.id_dag, self.source_nodes, self.id_to_task, self.fu_to_task,\
-            self.indegree_dict  = GraphHelper.generate_dag_info(graphHelper)
+        (
+            self.id_dag,
+            self.source_nodes,
+            self.id_to_task,
+            self.fu_to_task,
+            self.indegree_dict,
+        ) = GraphHelper.generate_dag_info(graphHelper)
 
     def calculate_time_factor_for_all_tasks(self):
         time_factor = {}
         for task_id in self.id_to_task.keys():
             time_factor[task_id] = 0
 
-        if not self.advanced :
+        if not self.advanced:
             self.time_factor = time_factor
-            return 
+            return
 
         q = Queue()
-        min_execution_time = float('inf')
-        max_execution_time = float('-inf')
+        min_execution_time = float("inf")
+        max_execution_time = float("-inf")
         for node in self.source_nodes:
             q.put(node)
         while not q.empty():
             node = q.get()
             task_record = self.id_to_task[node]
-            if 'predict_output' not in task_record.keys():
-                (func_name, input_size, predict_execution, predict_output) = self.predictor.predict(task_record)
-            
-            predict_execution = sum(task_record['predict_execution'].values())/len(task_record['predict_execution'])
-            task_record['avg_execution_time'] = predict_execution
+            if "predict_output" not in task_record.keys():
+                (
+                    func_name,
+                    input_size,
+                    predict_execution,
+                    predict_output,
+                ) = self.predictor.predict(task_record)
+
+            predict_execution = sum(task_record["predict_execution"].values()) / len(
+                task_record["predict_execution"]
+            )
+            task_record["avg_execution_time"] = predict_execution
             if predict_execution < min_execution_time:
                 min_execution_time = predict_execution
             if predict_execution > max_execution_time:
@@ -78,27 +86,35 @@ class ICOptimalScheduling():
 
         for key in time_factor.keys():
             task_record = self.id_to_task[key]
-            if 'avg_execution_time' not in task_record.keys():
-                (func_name, input_size, predict_execution, predict_output) = self.predictor.predict(task_record)
-                predict_execution = sum(task_record['predict_execution'].values())/len(task_record['predict_execution'])
-                task_record['avg_execution_time'] = predict_execution
+            if "avg_execution_time" not in task_record.keys():
+                (
+                    func_name,
+                    input_size,
+                    predict_execution,
+                    predict_output,
+                ) = self.predictor.predict(task_record)
+                predict_execution = sum(
+                    task_record["predict_execution"].values()
+                ) / len(task_record["predict_execution"])
+                task_record["avg_execution_time"] = predict_execution
 
-            execution_time = task_record['avg_execution_time']
+            execution_time = task_record["avg_execution_time"]
             if max_execution_time - min_execution_time == 0:
                 time_factor[key] = 0
             else:
-                time_factor[key] = (execution_time - min_execution_time) / (max_execution_time - min_execution_time)
+                time_factor[key] = (execution_time - min_execution_time) / (
+                    max_execution_time - min_execution_time
+                )
 
         self.time_factor = time_factor
-        return 
-    
+        return
 
     def calculate_priority_for_task(self, node_id):
         pq_value = 0
         for v in self.id_dag[node_id]:
-            pq_value += 1/self.indegree_dict[v]
-        pq_value =  pq_value * (1-self.time_factor[node_id])
-        self.id_to_task[node_id]['ic_priority'] = pq_value
+            pq_value += 1 / self.indegree_dict[v]
+        pq_value = pq_value * (1 - self.time_factor[node_id])
+        self.id_to_task[node_id]["ic_priority"] = pq_value
         return pq_value
 
     def remove_node_from_graph(self, node):
@@ -114,28 +130,31 @@ class ICOptimalScheduling():
 
         for node in self.id_dag.keys():
             node_task = self.id_to_task[node]
-            if node_task['func_name'] not in self.func_dict :
-                self.func_dict[node_task['func_name']] = {"task_num":0, "completed_num":0}
-            self.func_dict[node_task['func_name']]['task_num'] += 1
+            if node_task["func_name"] not in self.func_dict:
+                self.func_dict[node_task["func_name"]] = {
+                    "task_num": 0,
+                    "completed_num": 0,
+                }
+            self.func_dict[node_task["func_name"]]["task_num"] += 1
         # Check the integrity of workflow information
-        hit_history, out_history = self.predictor.look_up_history_model(self.func_dict.keys())
+        hit_history, out_history = self.predictor.look_up_history_model(
+            self.func_dict.keys()
+        )
         if len(out_history) == 0:
             return True
         else:
             return False
-    
-    
 
     def ic_optimal_based_on_priority(self):
         # Invoked after update_resource
         # Output: a list of task id, execution order which can achieve IC optimal
         self.calculate_time_factor_for_all_tasks()
         pq = []
-        
+
         execution_order_id = []
         for node in self.source_nodes:
             # -1: beacuse python heapq is a min heap
-            heapq.heappush(pq, (-1*self.calculate_priority_for_task(node), node))
+            heapq.heappush(pq, (-1 * self.calculate_priority_for_task(node), node))
 
         while len(pq) > 0:
             front = heapq.heappop(pq)
@@ -145,21 +164,19 @@ class ICOptimalScheduling():
             for child in self.id_dag[task_id]:
                 if self.indegree_dict[child] == 0:
                     p_val = self.calculate_priority_for_task(child)
-                    heapq.heappush(pq, (-1*p_val, child))
+                    heapq.heappush(pq, (-1 * p_val, child))
 
         return execution_order_id
-
-
 
 
 def generate_path_matrix(dag):
     # NOT USED/Deprecated
     graph_node_num = len(dag.keys())
-    path_matrix = np.zeros((graph_node_num,graph_node_num))
+    path_matrix = np.zeros((graph_node_num, graph_node_num))
     for key in dag:
-        key_id = key.task_def['id']
+        key_id = key.task_def["id"]
         for val in dag[key]:
-            val_id = val.task_def['id']
+            val_id = val.task_def["id"]
             path_matrix[key_id][val_id] = 1
 
     # Since its N^3 complexity, it should be used by small graph
@@ -174,7 +191,7 @@ def generate_path_matrix(dag):
     return path_matrix
 
 
-def find_meg(m : np.ndarray) -> np.ndarray:
+def find_meg(m: np.ndarray) -> np.ndarray:
     """
     NOT USED/Deprecated
     Find a minimal equivalent graph of M
@@ -193,7 +210,8 @@ def find_meg(m : np.ndarray) -> np.ndarray:
                     m[i][k] = 0 if m[j][k] else m[i][k]
     return m
 
-def generate_dag_by_meg(meg : np.ndarray) -> dict:
+
+def generate_dag_by_meg(meg: np.ndarray) -> dict:
     # NOT USED/Deprecated
     id_dag = {}
     for i in range(meg.shape[0]):
@@ -204,8 +222,7 @@ def generate_dag_by_meg(meg : np.ndarray) -> dict:
     return id_dag
 
 
-
-def ic_optimal_scheduling(graphHelper,execution_predictor):
+def ic_optimal_scheduling(graphHelper, execution_predictor):
     # pure dag, id_to_task,
     ic_sch = ICOptimalScheduling(execution_predictor=execution_predictor)
     ic_sch.update_resource(graphHelper)
@@ -219,21 +236,19 @@ def ic_optimal_scheduling(graphHelper,execution_predictor):
     for task_id in execution_order_id:
         task_record = ic_sch.id_to_task[task_id]
         execution_order.put(task_record)
-        if 'avg_execution_time' in task_record.keys():
+        if "avg_execution_time" in task_record.keys():
             id_list.append(task_id)
-            execution_time_list.append(-task_record['avg_execution_time'])
+            execution_time_list.append(-task_record["avg_execution_time"])
 
     important_task_list = []
     if len(id_list) > 0:
         total_num = len(id_list)
         sorted_pairs = sorted(zip(id_list, execution_time_list), key=lambda x: x[1])
-        for i in range(int(total_num* ic_sch.important_task_percentage)):
+        for i in range(int(total_num * ic_sch.important_task_percentage)):
             if i < len(sorted_pairs):
                 task_id = sorted_pairs[i][0]
                 task_record = ic_sch.id_to_task[task_id]
-                task_record['important'] = True
+                task_record["important"] = True
                 important_task_list.append(task_record)
 
-        
     return execution_order, check_sufficiency_of_info, peak_count, important_task_list
-    

@@ -35,8 +35,7 @@ class AppException(UniFaaSError):
 
 
 class AppBadFormatting(UniFaaSError):
-    """An error raised during formatting of a bash function.
-    """
+    """An error raised during formatting of a bash function."""
 
 
 class BashExitFailure(AppException):
@@ -53,8 +52,7 @@ class BashExitFailure(AppException):
 
 
 class AppTimeout(AppException):
-    """An error raised during execution of an app when it exceeds its allotted walltime.
-    """
+    """An error raised during execution of an app when it exceeds its allotted walltime."""
 
 
 class BashAppNoReturn(AppException):
@@ -91,14 +89,14 @@ class BadStdStreamFile(UniFaaSError):
 
 
 class RemoteExceptionWrapper:
-    def __init__(self, e_type: type, e_value: Exception, traceback: TracebackType) -> None:
-
+    def __init__(
+        self, e_type: type, e_value: Exception, traceback: TracebackType
+    ) -> None:
         self.e_type = dill.dumps(e_type)
         self.e_value = dill.dumps(e_value)
         self.e_traceback = Traceback(traceback)
 
     def reraise(self) -> None:
-
         t = dill.loads(self.e_type)
 
         # the type is logged here before deserialising v and tb
@@ -113,7 +111,7 @@ class RemoteExceptionWrapper:
         reraise(t, v, tb)
 
 
-R = TypeVar('R')
+R = TypeVar("R")
 
 # There appears to be no solution to typing this without a mypy plugin.
 # The reason is because wrap_error maps a Callable[[X...], R] to a Callable[[X...], Union[R, R2]].
@@ -132,13 +130,17 @@ R = TypeVar('R')
 #  arguments as Any.
 
 
-def wrap_error(func: Callable[..., R]) -> Callable[..., Union[R, RemoteExceptionWrapper]]:
+def wrap_error(
+    func: Callable[..., R]
+) -> Callable[..., Union[R, RemoteExceptionWrapper]]:
     @wraps(func)  # type: ignore
     def wrapper(*args: object, **kwargs: object) -> Any:
         import sys
         from unifaas.app.errors import RemoteExceptionWrapper
+
         try:
             return func(*args, **kwargs)  # type: ignore
         except Exception:
             return RemoteExceptionWrapper(*sys.exc_info())
+
     return wrapper  # type: ignore

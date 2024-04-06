@@ -13,20 +13,20 @@ import threading
 logger = logging.getLogger("unifaas")
 
 # Possible future states (for internal use by the futures package).
-PENDING = 'PENDING'
-RUNNING = 'RUNNING'
+PENDING = "PENDING"
+RUNNING = "RUNNING"
 # The future was cancelled by the user...
-CANCELLED = 'CANCELLED'
+CANCELLED = "CANCELLED"
 # ...and _Waiter.add_cancelled() was called by a worker.
-CANCELLED_AND_NOTIFIED = 'CANCELLED_AND_NOTIFIED'
-FINISHED = 'FINISHED'
+CANCELLED_AND_NOTIFIED = "CANCELLED_AND_NOTIFIED"
+FINISHED = "FINISHED"
 
 _STATE_TO_DESCRIPTION_MAP = {
     PENDING: "pending",
     RUNNING: "running",
     CANCELLED: "cancelled",
     CANCELLED_AND_NOTIFIED: "cancelled",
-    FINISHED: "finished"
+    FINISHED: "finished",
 }
 
 
@@ -71,15 +71,15 @@ class AppFuture(Future):
 
     @property
     def stdout(self):
-        return self.task_def['kwargs'].get('stdout')
+        return self.task_def["kwargs"].get("stdout")
 
     @property
     def stderr(self):
-        return self.task_def['kwargs'].get('stderr')
+        return self.task_def["kwargs"].get("stderr")
 
     @property
     def tid(self):
-        return self.task_def['id']
+        return self.task_def["id"]
 
     def cancel(self):
         raise NotImplementedError("Cancel not implemented")
@@ -89,26 +89,26 @@ class AppFuture(Future):
 
     def task_status(self):
         """Returns the status of the task that will provide the value
-           for this future.  This may not be in-sync with the result state
-           of this future - for example, task_status might return 'done' but
-           self.done() might not be true (which in turn means self.result()
-           and self.exception() might block).
+        for this future.  This may not be in-sync with the result state
+        of this future - for example, task_status might return 'done' but
+        self.done() might not be true (which in turn means self.result()
+        and self.exception() might block).
 
-           The actual status description strings returned by this method are
-           likely to change over subsequent versions of parsl, as use-cases
-           and infrastructure are worked out.
+        The actual status description strings returned by this method are
+        likely to change over subsequent versions of parsl, as use-cases
+        and infrastructure are worked out.
 
-           It is expected that the status values will be from a limited set
-           of strings (so that it makes sense, for example, to group and
-           count statuses from many futures).
+        It is expected that the status values will be from a limited set
+        of strings (so that it makes sense, for example, to group and
+        count statuses from many futures).
 
-           It is expected that might be a non-trivial cost in acquiring the
-           status in future (for example, by communicating with a remote
-           worker).
+        It is expected that might be a non-trivial cost in acquiring the
+        status in future (for example, by communicating with a remote
+        worker).
 
-           Returns: str
+        Returns: str
         """
-        return self.task_def['status'].name
+        return self.task_def["status"].name
 
     @property
     def outputs(self):

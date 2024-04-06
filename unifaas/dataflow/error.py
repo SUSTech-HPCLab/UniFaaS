@@ -7,13 +7,11 @@ class DataFlowException(Exception):
 
 
 class ConfigurationError(DataFlowException):
-    """Raised when the DataFlowKernel receives an invalid configuration.
-    """
+    """Raised when the DataFlowKernel receives an invalid configuration."""
 
 
 class DuplicateTaskError(DataFlowException):
-    """Raised by the DataFlowKernel when it finds that a job with the same task-id has been launched before.
-    """
+    """Raised by the DataFlowKernel when it finds that a job with the same task-id has been launched before."""
 
 
 class BadCheckpoint(DataFlowException):
@@ -52,4 +50,6 @@ class DependencyError(DataFlowException):
 
     def __str__(self):
         dep_tids = [tid for (exception, tid) in self.dependent_exceptions_tids]
-        return "Dependency failure for task {} with failed dependencies from tasks {}".format(self.task_id, dep_tids)
+        return "Dependency failure for task {} with failed dependencies from tasks {}".format(
+            self.task_id, dep_tids
+        )

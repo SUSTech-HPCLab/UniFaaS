@@ -19,15 +19,15 @@ logger = logging.getLogger("unifaas")
 def get_version() -> str:
     version = unifaas.__version__  # type: str
     work_tree = os.path.dirname(os.path.dirname(__file__))
-    git_dir = os.path.join(work_tree, '.git')
+    git_dir = os.path.join(work_tree, ".git")
     if os.path.exists(git_dir):
-        env = {'GIT_WORK_TREE': work_tree, 'GIT_DIR': git_dir}
+        env = {"GIT_WORK_TREE": work_tree, "GIT_DIR": git_dir}
         try:
-            cmd = shlex.split('git rev-parse --short HEAD')
-            head = subprocess.check_output(cmd, env=env).strip().decode('utf-8')
-            diff = subprocess.check_output(shlex.split('git diff HEAD'), env=env)
-            status = 'dirty' if diff else 'clean'
-            version = f'{VERSION}-{head}-{status}'
+            cmd = shlex.split("git rev-parse --short HEAD")
+            head = subprocess.check_output(cmd, env=env).strip().decode("utf-8")
+            diff = subprocess.check_output(shlex.split("git diff HEAD"), env=env)
+            status = "dirty" if diff else "clean"
+            version = f"{VERSION}-{head}-{status}"
         except Exception:
             pass
 
@@ -46,7 +46,7 @@ def get_all_checkpoints(rundir: str = "runinfo") -> List[str]:
 
     """
 
-    if(not os.path.isdir(rundir)):
+    if not os.path.isdir(rundir):
         return []
 
     dirs = sorted(os.listdir(rundir))
@@ -54,8 +54,7 @@ def get_all_checkpoints(rundir: str = "runinfo") -> List[str]:
     checkpoints = []
 
     for runid in dirs:
-
-        checkpoint = os.path.abspath(f'{rundir}/{runid}/checkpoint')
+        checkpoint = os.path.abspath(f"{rundir}/{runid}/checkpoint")
 
         if os.path.isdir(checkpoint):
             checkpoints.append(checkpoint)
@@ -88,48 +87,54 @@ def get_last_checkpoint(rundir: str = "runinfo") -> List[str]:
         return []
 
     last_runid = dirs[-1]
-    last_checkpoint = os.path.abspath(f'{rundir}/{last_runid}/checkpoint')
+    last_checkpoint = os.path.abspath(f"{rundir}/{last_runid}/checkpoint")
 
-    if(not(os.path.isdir(last_checkpoint))):
+    if not (os.path.isdir(last_checkpoint)):
         return []
 
     return [last_checkpoint]
 
 
-def get_std_fname_mode(fdname: str, stdfspec: Union[str, Tuple[str, str]]) -> Tuple[str, str]:
+def get_std_fname_mode(
+    fdname: str, stdfspec: Union[str, Tuple[str, str]]
+) -> Tuple[str, str]:
     import unifaas.app.errors as pe
+
     if stdfspec is None:
         return None, None
     elif isinstance(stdfspec, str):
         fname = stdfspec
-        mode = 'a+'
+        mode = "a+"
     elif isinstance(stdfspec, tuple):
         if len(stdfspec) != 2:
-            msg = (f"std descriptor {fdname} has incorrect tuple length "
-                   f"{len(stdfspec)}")
-            raise pe.BadStdStreamFile(msg, TypeError('Bad Tuple Length'))
+            msg = (
+                f"std descriptor {fdname} has incorrect tuple length "
+                f"{len(stdfspec)}"
+            )
+            raise pe.BadStdStreamFile(msg, TypeError("Bad Tuple Length"))
         fname, mode = stdfspec
         if not isinstance(fname, str) or not isinstance(mode, str):
-            msg = (f"std descriptor {fdname} has unexpected type "
-                   f"{type(stdfspec)}")
-            raise pe.BadStdStreamFile(msg, TypeError('Bad Tuple Type'))
+            msg = f"std descriptor {fdname} has unexpected type " f"{type(stdfspec)}"
+            raise pe.BadStdStreamFile(msg, TypeError("Bad Tuple Type"))
     else:
         msg = f"std descriptor {fdname} has unexpected type {type(stdfspec)}"
-        raise pe.BadStdStreamFile(msg, TypeError('Bad Tuple Type'))
+        raise pe.BadStdStreamFile(msg, TypeError("Bad Tuple Type"))
     return fname, mode
 
 
 @contextmanager
 def wait_for_file(path: str, seconds: int = 10) -> Generator[None, None, None]:
     for i in range(0, int(seconds * 100)):
-        time.sleep(seconds / 100.)
+        time.sleep(seconds / 100.0)
         if os.path.exists(path):
             break
     yield
 
 
 @contextmanager
-def time_limited_open(path: str, mode: str, seconds: int = 1) -> Generator[IO[AnyStr], None, None]:
+def time_limited_open(
+    path: str, mode: str, seconds: int = 1
+) -> Generator[IO[AnyStr], None, None]:
     with wait_for_file(path, seconds):
         logger.debug("wait_for_file yielded")
     f = open(path, mode)
@@ -138,7 +143,7 @@ def time_limited_open(path: str, mode: str, seconds: int = 1) -> Generator[IO[An
 
 
 def wtime_to_minutes(time_string: str) -> int:
-    ''' wtime_to_minutes
+    """wtime_to_minutes
 
     Convert standard wallclock time string to minutes.
 
@@ -148,12 +153,14 @@ def wtime_to_minutes(time_string: str) -> int:
     Returns:
         (int) minutes
 
-    '''
-    hours, mins, seconds = time_string.split(':')
+    """
+    hours, mins, seconds = time_string.split(":")
     total_mins = int(hours) * 60 + int(mins)
     if total_mins < 1:
-        msg = (f"Time string '{time_string}' parsed to {total_mins} minutes, "
-               f"less than 1")
+        msg = (
+            f"Time string '{time_string}' parsed to {total_mins} minutes, "
+            f"less than 1"
+        )
         logger.warning(msg)
     return total_mins
 
@@ -182,6 +189,7 @@ class RepresentationMixin(object):
     >>> bar
     Foo(1, 'two', third='three', fourth='baz')
     """
+
     __max_width__ = 80
 
     def __repr__(self) -> str:
@@ -195,7 +203,7 @@ class RepresentationMixin(object):
         # decorators, or cope with other decorators which do not use
         # functools.update_wrapper.
 
-        if hasattr(init, '__wrapped__'):
+        if hasattr(init, "__wrapped__"):
             init = init.__wrapped__
 
         argspec = inspect.getfullargspec(init)
@@ -206,13 +214,15 @@ class RepresentationMixin(object):
 
         for arg in argspec.args[1:]:
             if not hasattr(self, arg):
-                template = (f'class {self.__class__.__name__} uses {arg} in the'
-                            f' constructor, but does not define it as an '
-                            f'attribute')
+                template = (
+                    f"class {self.__class__.__name__} uses {arg} in the"
+                    f" constructor, but does not define it as an "
+                    f"attribute"
+                )
                 raise AttributeError(template)
 
         if len(defaults) != 0:
-            args = [getattr(self, a) for a in argspec.args[1:-len(defaults)]]
+            args = [getattr(self, a) for a in argspec.args[1 : -len(defaults)]]
         else:
             args = [getattr(self, a) for a in argspec.args[1:]]
         kwargs = {key: getattr(self, key) for key in defaults}
@@ -223,15 +233,17 @@ class RepresentationMixin(object):
                 if len(lines) <= 1:
                     return text
                 return "\n".join("    " + line for line in lines).strip()
+
             args = [f"\n    {indent(repr(a))}," for a in args]
-            kwargsl = [f"\n    {k}={indent(repr(v))}" for k, v in
-                       sorted(kwargs.items())]
+            kwargsl = [
+                f"\n    {k}={indent(repr(v))}" for k, v in sorted(kwargs.items())
+            ]
 
             info = "".join(args) + ", ".join(kwargsl)
             return self.__class__.__name__ + f"({info}\n)"
 
         def assemble_line(args: List[str], kwargs: Dict[str, object]) -> str:
-            kwargsl = [f'{k}={repr(v)}' for k, v in sorted(kwargs.items())]
+            kwargsl = [f"{k}={repr(v)}" for k, v in sorted(kwargs.items())]
 
             info = ", ".join([repr(a) for a in args] + kwargsl)
             return self.__class__.__name__ + f"({info})"
@@ -243,8 +255,7 @@ class RepresentationMixin(object):
 
 
 class AtomicIDCounter:
-    """A class to allocate counter-style IDs, in a thread-safe way.
-    """
+    """A class to allocate counter-style IDs, in a thread-safe way."""
 
     def __init__(self):
         self.count = 0
