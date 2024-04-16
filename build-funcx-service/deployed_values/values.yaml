@@ -45,6 +45,6 @@ rabbitmq:
 
 
 websocketService:
-  image: funcx/funcx-websocket-service
-  tag: v0.3.9
+  image: ericlee08543/dev_funcx
+  tag: web_socket_v037
   pullPolicy: IfNotPresent
