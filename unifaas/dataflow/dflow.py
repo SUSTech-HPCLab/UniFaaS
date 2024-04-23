@@ -37,7 +37,7 @@ from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
 from unifaas.dataflow.task_launcher import TaskLauncher
-
+from unifaas.compressor import compress_func
 logger = logging.getLogger("unifaas")
 
 exp_logger = logging.getLogger("experiment")
@@ -186,6 +186,7 @@ class DataFlowKernel(object):
             name="Task-States-Report-Thread",
         )
         self._task_states_report_thread.daemon = True
+        self.compress_task_tbl = {}
 
         self.data_trans_management = DataTransferManager(
             self.executors,
@@ -818,8 +819,17 @@ class DataFlowKernel(object):
         # Check for futures in inputs=[<fut>...]
         for dep in kwargs.get("inputs", []):
             check_dep(dep)
+        
+        # check the future should be compressed
+        res_depends = []
+        for dep in depends:
+            if dep in self.compress_task_tbl:
+                res_depends.append(self.compress_task_tbl[dep])
+            else:
+                res_depends.append(dep)
 
-        return depends
+
+        return res_depends
 
     def sanitize_and_wrap(self, args, kwargs):
         """This function should be called when all dependencies have completed.
@@ -916,6 +926,7 @@ class DataFlowKernel(object):
         app_kwargs={},
         join=False,
         never_change=False,
+        compressor=None,
     ):
         """Add task to the dataflow system.
 
@@ -934,6 +945,7 @@ class DataFlowKernel(object):
             - cache (Bool) : To enable memoization or not
             - ignore_for_cache (list) : List of kwargs to be ignored for memoization/checkpointing
             - app_kwargs (dict) : Rest of the kwargs to the fn passed as dict.
+            - compressor: claim what compresor will be used to compress the output data
 
         Returns:
                (AppFuture) [DataFutures,]
@@ -1009,6 +1021,7 @@ class DataFlowKernel(object):
             "submitted_to_poller": False,
             "never_change": never_change,
             "important": False,
+            "compressor": compressor,
         }
         exp_logger.debug("submitting task {} to executor {}".format(task_id, executor))
         exp_logger.debug(
@@ -1112,6 +1125,9 @@ class DataFlowKernel(object):
             task_def["status"] = States.pending
         self.launch_if_ready(task_def)
 
+        if compressor is not None:
+            self.append_compress_task(task_def, app_fu)
+
         return app_fu
 
     # it might also be interesting to assert that all DFK
@@ -1180,6 +1196,12 @@ class DataFlowKernel(object):
                 provider.script_dir = os.path.join(run_dir, "local_submit_scripts")
 
         channel.makedirs(channel.script_dir, exist_ok=True)
+
+    def append_compress_task(self, to_be_compressed_task, cur_appfu):
+        # firstly create a task record, then add this relation to table
+        app = self.submit(func=compress_func, app_args=tuple([cur_appfu]))
+        self.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+
 
     def add_executors(self, executors):
         for executor in executors:
