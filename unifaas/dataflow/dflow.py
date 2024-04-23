@@ -37,7 +37,7 @@ from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
 from unifaas.dataflow.task_launcher import TaskLauncher
-from unifaas.compressor import compress_func
+from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR
 logger = logging.getLogger("unifaas")
 
 exp_logger = logging.getLogger("experiment")
@@ -1199,7 +1199,13 @@ class DataFlowKernel(object):
 
     def append_compress_task(self, to_be_compressed_task, cur_appfu):
         # firstly create a task record, then add this relation to table
-        app = self.submit(func=compress_func, app_args=tuple([cur_appfu]))
+        # Users currently needs to specify the compressor.
+        compressor = to_be_compressed_task['compressor']
+        if compressor in SUPPORT_COMPRESSOR:
+            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]))
+        else:
+            logger.warn("Not support this compress method.")
+            return
         self.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
 
 

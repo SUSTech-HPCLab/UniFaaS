@@ -1,4 +1,6 @@
-def compress_func(rt_arg):
+SUPPORT_COMPRESSOR = ["gzip"]
+
+def compress_func(rt_arg, compress_method):
     # only support list, tuple, single file 
     from funcx.sdk.file import RemoteFile
     from funcx.sdk.file import RsyncFile
@@ -6,7 +8,7 @@ def compress_func(rt_arg):
     import os.path
    
 
-    def compress_file(file):
+    def gzip_compress_file(file):
         import gzip
         file_path = file.get_remote_file_path()
         new_file_path = file_path + ".gz"
@@ -17,7 +19,11 @@ def compress_func(rt_arg):
         return new_file_path
 
     def generate_compressed_remotefile(old_file):
-        new_path = compress_file(old_file)
+        if compress_method == "gzip":
+            new_path = gzip_compress_file(old_file)
+        else:
+            return old_file
+
         if isinstance(old_file, RsyncFile):
             base_name = os.path.basename(new_path)
             return RsyncFile.remote_generate(base_name)
