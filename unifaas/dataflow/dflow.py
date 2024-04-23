@@ -926,7 +926,7 @@ class DataFlowKernel(object):
         app_kwargs={},
         join=False,
         never_change=False,
-        compressor=None,
+        compress_option=(None,None,None),
     ):
         """Add task to the dataflow system.
 
@@ -995,6 +995,7 @@ class DataFlowKernel(object):
 
         resource_specification = app_kwargs.get("unifaas_resource_specification", {})
 
+       
         task_def = {
             "depends": None,
             "executor": executor,
@@ -1021,8 +1022,14 @@ class DataFlowKernel(object):
             "submitted_to_poller": False,
             "never_change": never_change,
             "important": False,
-            "compressor": compressor,
+            "compress_option": compress_option, 
         }
+        """
+        compress_option: if the output of this task should be compressed, fill the first item with a string named compress method, others are none.
+        if this task is a compress task, set the second as a string named compress method, others are none.
+        if this task is a decompress task, set the third as a string named decompress method, others are none.
+        """ 
+        
         exp_logger.debug("submitting task {} to executor {}".format(task_id, executor))
         exp_logger.debug(
             f"[MicroExp] Task {task_id} submitted on executor at time {time.time()}"
@@ -1125,7 +1132,7 @@ class DataFlowKernel(object):
             task_def["status"] = States.pending
         self.launch_if_ready(task_def)
 
-        if compressor is not None:
+        if compress_option[0] is not None:
             self.append_compress_task(task_def, app_fu)
 
         return app_fu
@@ -1200,9 +1207,9 @@ class DataFlowKernel(object):
     def append_compress_task(self, to_be_compressed_task, cur_appfu):
         # firstly create a task record, then add this relation to table
         # Users currently needs to specify the compressor.
-        compressor = to_be_compressed_task['compressor']
+        compressor = to_be_compressed_task['compress_option'][0]
         if compressor in SUPPORT_COMPRESSOR:
-            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]))
+            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None))
         else:
             logger.warn("Not support this compress method.")
             return

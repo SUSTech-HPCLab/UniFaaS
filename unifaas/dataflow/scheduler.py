@@ -668,9 +668,7 @@ class Scheduler:
                 if task_record["status"] == States.scheduling:
                     if not task_record["never_change"]:
                         task_record["executor"] = random.choice(executor_list)
-                        print("Test for transfer function : assign to lab")
-                        task_record["executor"] = "EVA"
-
+                        
                     if len(task_record["depends"]) <= 0:
                         task_record["status"] = States.data_managing
                         self.data_manager.handle_task_record_data_managing(task_record)
