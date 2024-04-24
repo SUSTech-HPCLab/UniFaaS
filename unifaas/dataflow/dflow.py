@@ -186,7 +186,6 @@ class DataFlowKernel(object):
             name="Task-States-Report-Thread",
         )
         self._task_states_report_thread.daemon = True
-        self.compress_task_tbl = {}
 
         self.data_trans_management = DataTransferManager(
             self.executors,
@@ -823,8 +822,8 @@ class DataFlowKernel(object):
         # check the future should be compressed
         res_depends = []
         for dep in depends:
-            if dep in self.compress_task_tbl:
-                res_depends.append(self.compress_task_tbl[dep])
+            if dep in graphHelper.compress_task_tbl:
+                res_depends.append(graphHelper.compress_task_tbl[dep])
             else:
                 res_depends.append(dep)
 
@@ -1213,7 +1212,8 @@ class DataFlowKernel(object):
         else:
             logger.warn("Not support this compress method.")
             return
-        self.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+        graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+        graphHelper.pred_compress_task_tbl[app] = to_be_compressed_task['app_fu']
 
 
     def add_executors(self, executors):

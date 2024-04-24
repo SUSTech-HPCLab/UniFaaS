@@ -643,6 +643,13 @@ class Scheduler:
                     task_record["executor"] = allocate_res[fu]
             counter += 1
 
+
+    def assign_same_executor_with_compressed_task(self,task_record):
+        if task_record["compress_option"][1] is not None:
+            pre_task  = graphHelper.pred_compress_task_tbl[task_record['app_fu']].task_def
+            task_record["executor"] = pre_task["executor"]
+
+
     def random_schedule(self):
         batch_size = 500
         cur_qsize = graphHelper.task_queue.qsize()
@@ -668,7 +675,7 @@ class Scheduler:
                 if task_record["status"] == States.scheduling:
                     if not task_record["never_change"]:
                         task_record["executor"] = random.choice(executor_list)
-                        
+                        self.assign_same_executor_with_compressed_task(task_record)
                     if len(task_record["depends"]) <= 0:
                         task_record["status"] = States.data_managing
                         self.data_manager.handle_task_record_data_managing(task_record)
@@ -883,6 +890,7 @@ class Scheduler:
                 f"[MicroExp] end scheduling, task {task_record['id']} at time {time.time()}"
             )
         task_record["visited"] = True
+        self.assign_same_executor_with_compressed_task(task_record)
         cur_vis += 1
         if cur_node in graphHelper.raw_graph.keys():
             for val in graphHelper.raw_graph[cur_node]:
