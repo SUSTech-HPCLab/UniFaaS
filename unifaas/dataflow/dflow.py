@@ -32,7 +32,7 @@ from unifaas.dataflow.states import States, FINAL_STATES, FINAL_FAILURE_STATES
 from unifaas.utils import get_version, get_std_fname_mode, get_all_checkpoints
 from unifaas.dataflow.scheduler import Scheduler
 from unifaas.dataflow.data_transfer_management import DataTransferManager
-from unifaas.dataflow.helper.execution_recorder import ExecutionRecorder
+from unifaas.dataflow.helper.execution_recorder import ExecutionRecorder, CompressionRecorder
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
@@ -197,6 +197,7 @@ class DataFlowKernel(object):
         # Temporarily, the recorder, status and predictor are initialized together
         if self.enable_execution_recorder:
             self.execution_recorder = ExecutionRecorder()
+            self.compress_recorder = CompressionRecorder()
         else:
             self.execution_recorder = None
 
@@ -1331,6 +1332,7 @@ class DataFlowKernel(object):
             self.scheduler.kill_scheduler()
             if self.execution_recorder:
                 self.execution_recorder.kill_writer()
+                self.compress_recorder.kill_writer()
 
         logger.info("DFK cleanup complete")
 
