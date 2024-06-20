@@ -375,27 +375,19 @@ class CompressionRecorder(ExecutionRecorder):
 
     def write_record(
         self,
-        func_name,
-        input_size,
-        output_name,
-        output_size,
-        compression_time,
-        decompression_time,
-        compressed_size,
-        compress_ep,
-        decompress_ep,
+        info,
     ):
         try:
             info_list = [
-                func_name,
-                input_size,
-                output_name,
-                output_size,
-                compression_time,
-                decompression_time,
-                compressed_size,
-                compress_ep,
-                decompress_ep,
+                info['func_name'],
+                info['input_size'],
+                info['output_name'],
+                info['output_size'],
+                info['compression_time'],
+                info['decompression_time'],
+                info['compressed_size'],
+                info['compress_ep'],
+                info['decompress_ep'],
             ]
             sql, params = self._insert_sql(info_list)
             self.sql_queue.put((sql, params))

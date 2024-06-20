@@ -18,6 +18,7 @@ from concurrent.futures import Future
 from functools import partial
 from unifaas.executors.funcx.executor import FuncXExecutor
 from queue import PriorityQueue
+from funcx.sdk.file import RemoteFile
 import unifaas
 from unifaas.app.errors import RemoteExceptionWrapper
 from unifaas.config import Config
@@ -198,6 +199,8 @@ class DataFlowKernel(object):
         if self.enable_execution_recorder:
             self.execution_recorder = ExecutionRecorder()
             self.compress_recorder = CompressionRecorder()
+
+            self.tmp_compress_record = {}
         else:
             self.execution_recorder = None
 
@@ -454,6 +457,37 @@ class DataFlowKernel(object):
                         predict_time = task_record["predict_execution"][executor]
                     res["predict_time"] = predict_time
                     self.execution_recorder.write_record(task_id, res)
+                    if 'compress_option' in task_record.keys() :
+                        if task_record['compress_option'][0] is not None:
+                            self.tmp_compress_record[task_record['app_fu']] = {}
+                            self.tmp_compress_record[task_record['app_fu']]['func_name'] = task_record['func_name']
+                            self.tmp_compress_record[task_record['app_fu']]['input_size'] = res['input_size']
+                            self.tmp_compress_record[task_record['app_fu']]['output_size'] = res['output_size']
+                            if isinstance(res['result'],RemoteFile):
+                                self.tmp_compress_record[task_record['app_fu']]['output_name'] = res['result'].file_name
+                            else:
+                                self.tmp_compress_record[task_record['app_fu']]['output_name'] = "default"
+                        elif task_record['compress_option'][1] is not None:
+                            if len(task_record['depends']) > 0:
+                                parent_app = task_record['depends'][0]
+                                if parent_app in self.tmp_compress_record:
+                                    self.tmp_compress_record[parent_app]['compression_time'] = res['execution_time']
+                                    self.tmp_compress_record[parent_app]['compressed_size'] = res['output_size']
+                                    self.tmp_compress_record[parent_app]['compress_ep'] = task_record['executor']
+                        elif task_record['compress_option'][2] is not None:
+                            if len(task_record['depends']) > 0:
+                                parent_app = task_record['depends'][0]
+                                parent_rec = parent_app.task_def
+                                if len(parent_rec['depends']) > 0 :
+                                    source_app = parent_rec['depends'][0]
+                                    if source_app in self.tmp_compress_record:
+                                        self.tmp_compress_record[source_app]['decompression_time'] = res['execution_time']
+                                        self.tmp_compress_record[source_app]['decompress_ep'] = task_record['executor']
+                                        self.compress_recorder.write_record(self.tmp_compress_record[source_app])
+                                        del self.tmp_compress_record[source_app]
+                        
+                                                    
+
                 task_record["output_size"] = res["output_size"]
                 exp_logger.info(
                     f"[CaseStudy] Task {task_record['id']} completed: {res['execution_time']}|{res['cpu_percent']}|{res['output_size']}"
