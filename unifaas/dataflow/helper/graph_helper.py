@@ -18,6 +18,7 @@ class GraphHelper:
         # Attributes for compress
         self.compress_task_tbl = {}
         self.pred_compress_task_tbl = {} # reverse of compress_task_tbl
+        self.decompress_task_tbl = {}
 
 
     @staticmethod

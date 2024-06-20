@@ -37,7 +37,7 @@ from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
 from unifaas.dataflow.task_launcher import TaskLauncher
-from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR
+from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR, decompress_func
 logger = logging.getLogger("unifaas")
 
 exp_logger = logging.getLogger("experiment")
@@ -822,8 +822,8 @@ class DataFlowKernel(object):
         # check the future should be compressed
         res_depends = []
         for dep in depends:
-            if dep in graphHelper.compress_task_tbl:
-                res_depends.append(graphHelper.compress_task_tbl[dep])
+            if dep in graphHelper.decompress_task_tbl:
+                res_depends.append(graphHelper.decompress_task_tbl[dep])
             else:
                 res_depends.append(dep)
 
@@ -1099,6 +1099,8 @@ class DataFlowKernel(object):
         # after we set it pending, then the last one will cause a launch, and the
         # explicit one won't.
 
+
+    
         if not self.enable_schedule:
             for d in depends:
 
@@ -1114,25 +1116,33 @@ class DataFlowKernel(object):
                         )
                     )
 
+        def send_task_to_scheduler(task_def):
+            self.scheduler.put_scheduling_task(task_def)
+            self.data_trans_management.put_data_management_task(task_def)
+
         if self.enable_schedule:
             task_def["status"] = States.scheduling
             graphHelper.put_scheduling_task(task_def)
-            self.scheduler.put_scheduling_task(task_def)
-            exp_logger.debug(f"[latency test] put task to sheduling queue")
-            self.data_trans_management.put_data_management_task(task_def)
-            # if int(task_def['id']) % 1000 == 1:
-            logger.debug(
-                "Task {} submitted for App {}, {}".format(
-                    task_id, task_def["func_name"], waiting_message
-                )
-            )
+            if compress_option[0] is not None:
+                compress_app = self.append_compress_task(task_def, app_fu)
+                send_task_to_scheduler(task_def)
+             
+                if compress_app is not None:
+                    send_task_to_scheduler(compress_app.task_def)
+                    decompress_app = self.append_decompress_task(compress_app, app_fu)
+                    send_task_to_scheduler(decompress_app.task_def)
+                   
+            elif compress_option[1] is not None:
+                return app_fu
+            elif compress_option[2] is not None:
+                return app_fu
+            else:
+                send_task_to_scheduler(task_def)
+               
 
         else:
             task_def["status"] = States.pending
         self.launch_if_ready(task_def)
-
-        if compress_option[0] is not None:
-            self.append_compress_task(task_def, app_fu)
 
         return app_fu
 
@@ -1206,14 +1216,26 @@ class DataFlowKernel(object):
     def append_compress_task(self, to_be_compressed_task, cur_appfu):
         # firstly create a task record, then add this relation to table
         # Users currently needs to specify the compressor.
+        # raw_task_app = cur_appfu
         compressor = to_be_compressed_task['compress_option'][0]
         if compressor in SUPPORT_COMPRESSOR:
             app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None))
+            graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+            graphHelper.pred_compress_task_tbl[app] = cur_appfu
+            return app
         else:
             logger.warn("Not support this compress method.")
-            return
-        graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
-        graphHelper.pred_compress_task_tbl[app] = to_be_compressed_task['app_fu']
+            return None
+        
+    def append_decompress_task(self, compressed_task_app, source_app):
+        compressed_task_def = compressed_task_app.task_def
+        compressor = compressed_task_def['compress_option'][1]
+        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor))
+        graphHelper.decompress_task_tbl[source_app] = de_compress_app
+        return de_compress_app
+
+    
+        
 
 
     def add_executors(self, executors):
