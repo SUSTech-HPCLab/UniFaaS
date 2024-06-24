@@ -4,6 +4,7 @@ from unifaas.dataflow.states import States
 from unifaas.dataflow.data_transfer_management import DataTransferManager
 from unifaas.dataflow.helper.transfer_predictor import TransferPredictor
 from unifaas.executors import FuncXExecutor
+from unifaas.dataflow.helper.graph_helper import graphHelper
 import logging
 
 exp_logger = logging.getLogger("experiment")
@@ -25,6 +26,22 @@ class TaskLauncher:
             if isinstance(executors[executor], FuncXExecutor):
                 self.launch_que_dict[executor] = deque()
 
+    def check_same_executor_with_compressed_task(self,task_record):
+        if len(task_record["depends"]) == 1 and task_record["compress_option"][1] is not None:
+            pre_task = task_record["depends"][0].task_def
+            if task_record["executor"] != pre_task["executor"]:
+                exp_logger.error(f"source task {task_record} and the compress task are not on the same executor.")
+
+
+        # check if the decompression task and target task on the same executor
+        if 'compress_option' in task_record and task_record['compress_option'[2] is not None]:
+            tmp_app = task_record['app_fu']
+            if tmp_app in graphHelper.decompress_to_target_tbl:
+                target_app = graphHelper.decompress_to_target_tbl[tmp_app]
+                traget_task = target_app.task_def
+                if traget_task['executor'] != task_record["executor"] :
+                    exp_logger.error(f"target task {traget_task} and the decompress task are not on the same executor.")
+
     def dispatch_task_record_to_launch_que(self, task_record):
         executor = task_record["executor"]
         task_record["status"] = States.queuing
@@ -39,6 +56,7 @@ class TaskLauncher:
                 self.resource_poller.update_when_launch_task(
                     key, task_record=task_record
                 )
+                self.check_same_executor_with_compressed_task(task_record)
                 self.task_status_tracker.modify_ready_to_launch(-1)
                 self.launch_function(task_record)
 

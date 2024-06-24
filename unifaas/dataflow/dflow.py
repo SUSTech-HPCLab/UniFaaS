@@ -1118,6 +1118,12 @@ class DataFlowKernel(object):
             )
         )
 
+        for dep in task_def["depends"]:
+            dep_task = dep.task_def
+            if 'compress_option' in dep_task and dep_task['compress_option'][2] is not None:
+                graphHelper.decompress_to_target_tbl[app_fu] = dep
+
+
         self.task_status_tracker.update_when_submit_to_dfk(task_def)
 
         self._send_task_log_info(task_def)
@@ -1256,7 +1262,6 @@ class DataFlowKernel(object):
         if compressor in SUPPORT_COMPRESSOR:
             app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None))
             graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
-            graphHelper.pred_compress_task_tbl[app] = cur_appfu
             return app
         else:
             logger.warn("Not support this compress method.")

@@ -645,13 +645,14 @@ class Scheduler:
 
 
     def assign_same_executor_with_compressed_task(self,task_record):
-        if task_record["compress_option"][1] is not None:
-            pre_task  = graphHelper.pred_compress_task_tbl[task_record['app_fu']].task_def
+        if len(task_record["depends"]) == 1 and 'compress_option' in task_record  and task_record["compress_option"][1] is not None:
+            pre_task  = task_record["depends"][0].task_def
             task_record["executor"] = pre_task["executor"]
+            return
 
         # check if the depend task is a decompression task
-        if len(task_record["depends"]) == 1:
-            pre_task = task_record["depends"][0].task_def
+        for dep in task_record["depends"]:
+            pre_task = dep.task_def
             if 'compress_option' in pre_task and pre_task["compress_option"][2] is not None:
                 pre_task['executor'] = task_record['executor']
             

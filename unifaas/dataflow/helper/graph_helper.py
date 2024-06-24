@@ -16,9 +16,9 @@ class GraphHelper:
         self.task_queue = Queue()
 
         # Attributes for compress
-        self.compress_task_tbl = {}
-        self.pred_compress_task_tbl = {} # reverse of compress_task_tbl
-        self.decompress_task_tbl = {}
+        self.compress_task_tbl = {} # src_app : compress_app
+        self.decompress_task_tbl = {} # src_app: decompress_app
+        self.decompress_to_target_tbl = {} # decompress_app : target
 
 
     @staticmethod
