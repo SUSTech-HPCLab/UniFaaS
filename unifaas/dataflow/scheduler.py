@@ -649,6 +649,13 @@ class Scheduler:
             pre_task  = graphHelper.pred_compress_task_tbl[task_record['app_fu']].task_def
             task_record["executor"] = pre_task["executor"]
 
+        # check if the depend task is a decompression task
+        if len(task_record["depends"]) == 1:
+            pre_task = task_record["depends"][0].task_def
+            if 'compress_option' in pre_task and pre_task["compress_option"][2] is not None:
+                pre_task['executor'] = task_record['executor']
+            
+
 
     def random_schedule(self):
         batch_size = 500
@@ -912,6 +919,12 @@ class Scheduler:
                         child, input_data=task_res, invoke=True
                     )
         elif self.scheduling_strategy == "ADVANCE":
+            """
+            -------------------------------------------------------------------------------
+            WARNING: This code has been deprecated and not be tested in production.
+                    It remains here for future updates. 
+            -------------------------------------------------------------------------------
+            """
             tmp_exe = task_record["executor"]
             # remove one element from the eft_queue
             if not self.eft_queue[tmp_exe].empty():
