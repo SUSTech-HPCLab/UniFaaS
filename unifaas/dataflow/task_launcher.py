@@ -34,7 +34,7 @@ class TaskLauncher:
 
 
         # check if the decompression task and target task on the same executor
-        if 'compress_option' in task_record and task_record['compress_option'[2] is not None]:
+        if 'compress_option' in task_record and task_record['compress_option'][2] is not None:
             tmp_app = task_record['app_fu']
             if tmp_app in graphHelper.decompress_to_target_tbl:
                 target_app = graphHelper.decompress_to_target_tbl[tmp_app]
