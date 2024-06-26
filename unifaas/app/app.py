@@ -124,7 +124,7 @@ def python_app(
                 ignore_for_cache=ignore_for_cache,
                 join=join,
                 never_change=never_change,
-                compress_option=(compressor,None,None),
+                compress_option=(compressor,None,None,None),
             )
 
         return wrapper(func)

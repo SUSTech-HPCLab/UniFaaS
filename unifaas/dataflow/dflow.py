@@ -960,7 +960,7 @@ class DataFlowKernel(object):
         app_kwargs={},
         join=False,
         never_change=False,
-        compress_option=(None,None,None),
+        compress_option=(None,None,None,None),
     ):
         """Add task to the dataflow system.
 
@@ -1083,10 +1083,28 @@ class DataFlowKernel(object):
         else:
             self.tasks[task_id] = task_def
 
+        #replace args and kwargs if task is a target task
+        compress_args = []
+        for tmp_arg in app_args:
+            if tmp_arg in graphHelper.decompress_task_tbl:
+                compress_args.append(graphHelper.decompress_task_tbl[tmp_arg])
+            else:
+                compress_args.append(tmp_arg)
+        app_args = tuple(compress_args)
+
+        compress_kwargs = {}
+        for tmp_key in app_kwargs:
+            dep = app_kwargs[tmp_key]
+            if dep in  graphHelper.decompress_task_tbl:
+                compress_kwargs[tmp_key] = graphHelper.decompress_task_tbl[dep]
+            else:
+                compress_kwargs[tmp_key] = dep
+        app_kwargs = compress_kwargs
+
+
         # Get the list of dependencies for the task
         depends = self._gather_all_deps(app_args, app_kwargs)
         task_def["depends"] = depends
-
         depend_descs = []
         for d in depends:
             if isinstance(d, AppFuture):
@@ -1121,7 +1139,8 @@ class DataFlowKernel(object):
         for dep in task_def["depends"]:
             dep_task = dep.task_def
             if 'compress_option' in dep_task and dep_task['compress_option'][2] is not None:
-                graphHelper.decompress_to_target_tbl[app_fu] = dep
+                graphHelper.decompress_to_target_tbl[dep] = app_fu
+                task_def['compress_option'] = (None,None,None,True) # src -> compress -> decompress -> target
 
 
         self.task_status_tracker.update_when_submit_to_dfk(task_def)
@@ -1260,7 +1279,7 @@ class DataFlowKernel(object):
         # raw_task_app = cur_appfu
         compressor = to_be_compressed_task['compress_option'][0]
         if compressor in SUPPORT_COMPRESSOR:
-            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None))
+            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None,None))
             graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
             return app
         else:
@@ -1270,7 +1289,7 @@ class DataFlowKernel(object):
     def append_decompress_task(self, compressed_task_app, source_app):
         compressed_task_def = compressed_task_app.task_def
         compressor = compressed_task_def['compress_option'][1]
-        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor))
+        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor,None))
         graphHelper.decompress_task_tbl[source_app] = de_compress_app
         return de_compress_app
 

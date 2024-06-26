@@ -45,7 +45,7 @@ class PythonApp(AppBase):
         ignore_for_cache=[],
         join=False,
         never_change=False,
-        compress_option=(None,None,None),
+        compress_option=(None,None,None,None),
     ):
         super().__init__(
             wrap_error(func),
