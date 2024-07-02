@@ -175,7 +175,7 @@ class TaskLauncher:
         ):
             self.no_block_launch()
         elif (
-            self.scheduling_strategy == "DHEFT" or self.scheduling_strategy == "HYBRID"
+            self.scheduling_strategy == "DHEFT"
         ):
             self.block_launch()
         else:

@@ -296,17 +296,6 @@ class TransferRecorder(ExecutionRecorder):
             logger.warn(f"[Recorder] Write execution record failed: {e}")
 
 
-def write_workflow_prediction_result(file_path, info):
-    # if there is already a file, remove it and create a new one
-    info_str = ""
-    with open(file_path, "a") as f:
-        for i in range(len(info) - 1):
-            info_str += f"{info[i]},"
-        if isinstance(info[-1], dict):
-            for key, value in info[-1].items():
-                info_str += f"{key}|{value}|"
-            info_str += "\n"
-        f.write(info_str)
 
 
 class CompressionRecorder(ExecutionRecorder):

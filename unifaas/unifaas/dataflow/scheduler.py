@@ -1039,7 +1039,6 @@ class Scheduler:
                     )
         elif (
             self.scheduling_strategy == "HEFT"
-            or self.dynamic_adjust_strategy == "GREEDY"
         ):
             appfu = task_record["app_fu"]
             child_task_fu_list = self.raw_graph[appfu]
@@ -1053,22 +1052,15 @@ class Scheduler:
                     )
         elif (
             self.scheduling_strategy == "DATA"
-            or self.dynamic_adjust_strategy == "DATA"
-            or self.dynamic_adjust_strategy == "GREEDY"
+            or (self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT")
         ):
             appfu = task_record["app_fu"]
             child_task_fu_list = self.raw_graph[appfu]
             child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
             for child in child_task_list:
-                # all_done = True
-                # for parent in child["depends"]:
-                #     if isinstance(parent, Future) and not parent.done():
-                #         all_done = False
-                #         break
 
                 all_done = self.check_all_deps_finished(child)
                 if all_done:
-                    # send to DATA_ready_queue
                     if self.dynamic_adjust_strategy == "GREEDY":
                         self.ep_selection.put_task_record(child)
                     else:

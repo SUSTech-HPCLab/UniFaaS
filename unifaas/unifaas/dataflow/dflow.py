@@ -457,6 +457,9 @@ class DataFlowKernel(object):
                         predict_time = task_record["predict_execution"][executor]
                     res["predict_time"] = predict_time
                     self.execution_recorder.write_record(task_id, res)
+
+                    # Record the compression task information firstly.
+                    # When he decompression task is finished, combing the compression info, write it to the database
                     if 'compress_option' in task_record.keys() :
                         if task_record['compress_option'][0] is not None:
                             self.tmp_compress_record[task_record['app_fu']] = {}
@@ -1463,7 +1466,6 @@ class DataFlowKernel(object):
                     task_record["id"], task_record["app_fu"].stderr
                 )
             )
-
 
 class TaskWithPriority:
     def __init__(self, task):
