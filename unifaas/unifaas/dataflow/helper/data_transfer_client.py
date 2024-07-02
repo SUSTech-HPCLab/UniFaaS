@@ -260,7 +260,7 @@ class SFTPClient:
         self.cur_on_fly_trans = {}
         self.transferring_size = {}
         self.transferring_file_num = {}
-        self.transfer_history_tbl = {}
+       # self.transfer_history_tbl = {}
         for key in self.executors.keys():
             self.thread_pool[key] = {}
             self.transfer_cmd_queue_dict[key] = {}
@@ -392,15 +392,15 @@ class SFTPClient:
                     task["dst_ep"] = f"{dest_user}@{dest_ip}"
                     task["dest_path"] = dest_path
                     logger.info(f"[SFTP] Skip transfer task, due to local: {task}")
-                    if task["remote_file"] not in self.transfer_history_tbl.keys():
-                        self.transfer_history_tbl[task["remote_file"]] = {}
-                    if (
-                        remote_host
-                        not in self.transfer_history_tbl[task["remote_file"]]
-                    ):
-                        self.transfer_history_tbl[task["remote_file"]][
-                            remote_host
-                        ] = task
+                    # if task["remote_file"] not in self.transfer_history_tbl.keys():
+                    #     self.transfer_history_tbl[task["remote_file"]] = {}
+                    # if (
+                    #     remote_host
+                    #     not in self.transfer_history_tbl[task["remote_file"]]
+                    # ):
+                    #     self.transfer_history_tbl[task["remote_file"]][
+                    #         remote_host
+                    #     ] = task
                     return task
             identifier = f"{src_username}@{src_ip}"
             src_host = None
@@ -428,25 +428,26 @@ class SFTPClient:
             task["src_ip"] = src_ip
             task["cmd"] = transfer_cmd
             task["file_size"] = file.file_size
-            if file in self.transfer_history_tbl.keys():
-                if remote_host in self.transfer_history_tbl[file]:
-                    logger.info(f"[SFTP] Skip transfer task, due to already in history")
-                    exist_task = self.transfer_history_tbl[file][remote_host]
-                    if (
-                        exist_task["status"] == "SUCCEEDED"
-                        or exist_task["status"] == "LOCAL"
-                    ):
-                        task["status"] = "LOCAL"
-                        logger.info(
-                            f"[SFTP] Skip transfer task, due to history marked with local: {task}"
-                        )
-                        return task
-                    return exist_task
 
-            if task["remote_file"] not in self.transfer_history_tbl.keys():
-                self.transfer_history_tbl[task["remote_file"]] = {}
-            if remote_host not in self.transfer_history_tbl[task["remote_file"]]:
-                self.transfer_history_tbl[task["remote_file"]][remote_host] = task
+            # if file in self.transfer_history_tbl.keys():
+            #     if remote_host in self.transfer_history_tbl[file]:
+            #         logger.info(f"[SFTP] Skip transfer task, due to already in history")
+            #         exist_task = self.transfer_history_tbl[file][remote_host]
+            #         if (
+            #             exist_task["status"] == "SUCCEEDED"
+            #             or exist_task["status"] == "LOCAL"
+            #         ):
+            #             task["status"] = "LOCAL"
+            #             logger.info(
+            #                 f"[SFTP] Skip transfer task, due to history marked with local: {task}"
+            #             )
+            #             return task
+            #         return exist_task
+
+            # if task["remote_file"] not in self.transfer_history_tbl.keys():
+            #     self.transfer_history_tbl[task["remote_file"]] = {}
+            # if remote_host not in self.transfer_history_tbl[task["remote_file"]]:
+            #     self.transfer_history_tbl[task["remote_file"]][remote_host] = task
 
             self.put_transfer_task_in_queue(task)
             self.transfer_tasks.put(task)
@@ -583,7 +584,7 @@ class GlobusTransferClient:
         self.executor_address_info = {}
         self.transferring_size = {}
         self.transferring_file_num = {}
-        self.transfer_history_tbl = {}
+        # self.transfer_history_tbl = {}
         self.flying_tasks = {}
         for key in self.executors.keys():
             self.transferring_size[key] = {}
@@ -619,15 +620,15 @@ class GlobusTransferClient:
                     task["dst_ep"] = dest_ep
                     task["dest_path"] = target_path
                     logger.info(f"Skip transfer task, due to local: {file}")
-                    if task["remote_file"] not in self.transfer_history_tbl.keys():
-                        self.transfer_history_tbl[task["remote_file"]] = {}
-                    if (
-                        remote_host
-                        not in self.transfer_history_tbl[task["remote_file"]]
-                    ):
-                        self.transfer_history_tbl[task["remote_file"]][
-                            remote_host
-                        ] = task
+                    # if task["remote_file"] not in self.transfer_history_tbl.keys():
+                    #     self.transfer_history_tbl[task["remote_file"]] = {}
+                    # if (
+                    #     remote_host
+                    #     not in self.transfer_history_tbl[task["remote_file"]]
+                    # ):
+                    #     self.transfer_history_tbl[task["remote_file"]][
+                    #         remote_host
+                    #     ] = task
                     return task
             src_host = None
             for exe in self.executor_address_info.keys():
@@ -650,26 +651,27 @@ class GlobusTransferClient:
             task["src_host"] = src_host
             task["dest_host"] = remote_host
             task["file_size"] = file.file_size
-            if file in self.transfer_history_tbl.keys():
-                if remote_host in self.transfer_history_tbl[file]:
-                    logger.info(
-                        f"[GLOBUS] Skip transfer task, due to already in history"
-                    )
-                    exist_task = self.transfer_history_tbl[file][remote_host]
-                    if (
-                        exist_task["status"] == "SUCCEEDED"
-                        or exist_task["status"] == "LOCAL"
-                    ):
-                        task["status"] = "LOCAL"
-                        logger.info(
-                            f"[GLOBUS] Skip transfer task, due to history marked with local: {task}"
-                        )
-                        return task
-                    return exist_task
-            if task["remote_file"] not in self.transfer_history_tbl.keys():
-                self.transfer_history_tbl[task["remote_file"]] = {}
-            if remote_host not in self.transfer_history_tbl[task["remote_file"]]:
-                self.transfer_history_tbl[task["remote_file"]][remote_host] = task
+            
+            # if file in self.transfer_history_tbl.keys():
+            #     if remote_host in self.transfer_history_tbl[file]:
+            #         logger.info(
+            #             f"[GLOBUS] Skip transfer task, due to already in history"
+            #         )
+            #         exist_task = self.transfer_history_tbl[file][remote_host]
+            #         if (
+            #             exist_task["status"] == "SUCCEEDED"
+            #             or exist_task["status"] == "LOCAL"
+            #         ):
+            #             task["status"] = "LOCAL"
+            #             logger.info(
+            #                 f"[GLOBUS] Skip transfer task, due to history marked with local: {task}"
+            #             )
+            #             return task
+            #         return exist_task
+            # if task["remote_file"] not in self.transfer_history_tbl.keys():
+            #     self.transfer_history_tbl[task["remote_file"]] = {}
+            # if remote_host not in self.transfer_history_tbl[task["remote_file"]]:
+            #     self.transfer_history_tbl[task["remote_file"]][remote_host] = task
 
             self.put_transfer_task_in_queue(task)
             globus_task = self.globus_transfer(file, dest_ep, target_path)

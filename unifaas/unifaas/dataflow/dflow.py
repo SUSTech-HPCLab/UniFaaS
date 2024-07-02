@@ -18,6 +18,7 @@ from concurrent.futures import Future
 from functools import partial
 from unifaas.executors.funcx.executor import FuncXExecutor
 from queue import PriorityQueue
+from funcx.sdk.file import RemoteFile
 import unifaas
 from unifaas.app.errors import RemoteExceptionWrapper
 from unifaas.config import Config
@@ -32,12 +33,12 @@ from unifaas.dataflow.states import States, FINAL_STATES, FINAL_FAILURE_STATES
 from unifaas.utils import get_version, get_std_fname_mode, get_all_checkpoints
 from unifaas.dataflow.scheduler import Scheduler
 from unifaas.dataflow.data_transfer_management import DataTransferManager
-from unifaas.dataflow.helper.execution_recorder import ExecutionRecorder
+from unifaas.dataflow.helper.execution_recorder import ExecutionRecorder, CompressionRecorder
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
 from unifaas.dataflow.task_launcher import TaskLauncher
-
+from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR, decompress_func
 logger = logging.getLogger("unifaas")
 
 exp_logger = logging.getLogger("experiment")
@@ -197,6 +198,9 @@ class DataFlowKernel(object):
         # Temporarily, the recorder, status and predictor are initialized together
         if self.enable_execution_recorder:
             self.execution_recorder = ExecutionRecorder()
+            self.compress_recorder = CompressionRecorder()
+
+            self.tmp_compress_record = {}
         else:
             self.execution_recorder = None
 
@@ -453,6 +457,40 @@ class DataFlowKernel(object):
                         predict_time = task_record["predict_execution"][executor]
                     res["predict_time"] = predict_time
                     self.execution_recorder.write_record(task_id, res)
+
+                    # Record the compression task information firstly.
+                    # When he decompression task is finished, combing the compression info, write it to the database
+                    if 'compress_option' in task_record.keys() :
+                        if task_record['compress_option'][0] is not None:
+                            self.tmp_compress_record[task_record['app_fu']] = {}
+                            self.tmp_compress_record[task_record['app_fu']]['func_name'] = task_record['func_name']
+                            self.tmp_compress_record[task_record['app_fu']]['input_size'] = res['input_size']
+                            self.tmp_compress_record[task_record['app_fu']]['output_size'] = res['output_size']
+                            if isinstance(res['result'],RemoteFile):
+                                self.tmp_compress_record[task_record['app_fu']]['output_name'] = res['result'].file_name
+                            else:
+                                self.tmp_compress_record[task_record['app_fu']]['output_name'] = "default"
+                        elif task_record['compress_option'][1] is not None:
+                            if len(task_record['depends']) > 0:
+                                parent_app = task_record['depends'][0]
+                                if parent_app in self.tmp_compress_record:
+                                    self.tmp_compress_record[parent_app]['compression_time'] = res['execution_time']
+                                    self.tmp_compress_record[parent_app]['compressed_size'] = res['output_size']
+                                    self.tmp_compress_record[parent_app]['compress_ep'] = task_record['executor']
+                        elif task_record['compress_option'][2] is not None:
+                            if len(task_record['depends']) > 0:
+                                parent_app = task_record['depends'][0]
+                                parent_rec = parent_app.task_def
+                                if len(parent_rec['depends']) > 0 :
+                                    source_app = parent_rec['depends'][0]
+                                    if source_app in self.tmp_compress_record:
+                                        self.tmp_compress_record[source_app]['decompression_time'] = res['execution_time']
+                                        self.tmp_compress_record[source_app]['decompress_ep'] = task_record['executor']
+                                        self.compress_recorder.write_record(self.tmp_compress_record[source_app])
+                                        del self.tmp_compress_record[source_app]
+                        
+                                                    
+
                 task_record["output_size"] = res["output_size"]
                 exp_logger.info(
                     f"[CaseStudy] Task {task_record['id']} completed: {res['execution_time']}|{res['cpu_percent']}|{res['output_size']}"
@@ -818,8 +856,17 @@ class DataFlowKernel(object):
         # Check for futures in inputs=[<fut>...]
         for dep in kwargs.get("inputs", []):
             check_dep(dep)
+        
+        # check the future should be compressed
+        res_depends = []
+        for dep in depends:
+            if dep in graphHelper.decompress_task_tbl:
+                res_depends.append(graphHelper.decompress_task_tbl[dep])
+            else:
+                res_depends.append(dep)
 
-        return depends
+
+        return res_depends
 
     def sanitize_and_wrap(self, args, kwargs):
         """This function should be called when all dependencies have completed.
@@ -916,6 +963,7 @@ class DataFlowKernel(object):
         app_kwargs={},
         join=False,
         never_change=False,
+        compress_option=(None,None,None,None),
     ):
         """Add task to the dataflow system.
 
@@ -934,6 +982,7 @@ class DataFlowKernel(object):
             - cache (Bool) : To enable memoization or not
             - ignore_for_cache (list) : List of kwargs to be ignored for memoization/checkpointing
             - app_kwargs (dict) : Rest of the kwargs to the fn passed as dict.
+            - compressor: claim what compresor will be used to compress the output data
 
         Returns:
                (AppFuture) [DataFutures,]
@@ -983,6 +1032,7 @@ class DataFlowKernel(object):
 
         resource_specification = app_kwargs.get("unifaas_resource_specification", {})
 
+       
         task_def = {
             "depends": None,
             "executor": executor,
@@ -1009,7 +1059,14 @@ class DataFlowKernel(object):
             "submitted_to_poller": False,
             "never_change": never_change,
             "important": False,
+            "compress_option": compress_option, 
         }
+        """
+        compress_option: if the output of this task should be compressed, fill the first item with a string named compress method, others are none.
+        if this task is a compress task, set the second as a string named compress method, others are none.
+        if this task is a decompress task, set the third as a string named decompress method, others are none.
+        """ 
+        
         exp_logger.debug("submitting task {} to executor {}".format(task_id, executor))
         exp_logger.debug(
             f"[MicroExp] Task {task_id} submitted on executor at time {time.time()}"
@@ -1029,10 +1086,28 @@ class DataFlowKernel(object):
         else:
             self.tasks[task_id] = task_def
 
+        #replace args and kwargs if task is a target task
+        compress_args = []
+        for tmp_arg in app_args:
+            if tmp_arg in graphHelper.decompress_task_tbl:
+                compress_args.append(graphHelper.decompress_task_tbl[tmp_arg])
+            else:
+                compress_args.append(tmp_arg)
+        app_args = tuple(compress_args)
+
+        compress_kwargs = {}
+        for tmp_key in app_kwargs:
+            dep = app_kwargs[tmp_key]
+            if dep in  graphHelper.decompress_task_tbl:
+                compress_kwargs[tmp_key] = graphHelper.decompress_task_tbl[dep]
+            else:
+                compress_kwargs[tmp_key] = dep
+        app_kwargs = compress_kwargs
+
+
         # Get the list of dependencies for the task
         depends = self._gather_all_deps(app_args, app_kwargs)
         task_def["depends"] = depends
-
         depend_descs = []
         for d in depends:
             if isinstance(d, AppFuture):
@@ -1064,6 +1139,13 @@ class DataFlowKernel(object):
             )
         )
 
+        for dep in task_def["depends"]:
+            dep_task = dep.task_def
+            if 'compress_option' in dep_task and dep_task['compress_option'][2] is not None:
+                graphHelper.decompress_to_target_tbl[dep] = app_fu
+                task_def['compress_option'] = (None,None,None,True) # src -> compress -> decompress -> target
+
+
         self.task_status_tracker.update_when_submit_to_dfk(task_def)
 
         self._send_task_log_info(task_def)
@@ -1080,6 +1162,8 @@ class DataFlowKernel(object):
         # after we set it pending, then the last one will cause a launch, and the
         # explicit one won't.
 
+
+    
         if not self.enable_schedule:
             for d in depends:
 
@@ -1095,18 +1179,29 @@ class DataFlowKernel(object):
                         )
                     )
 
+        def send_task_to_scheduler(task_def):
+            self.scheduler.put_scheduling_task(task_def)
+            self.data_trans_management.put_data_management_task(task_def)
+
         if self.enable_schedule:
             task_def["status"] = States.scheduling
             graphHelper.put_scheduling_task(task_def)
-            self.scheduler.put_scheduling_task(task_def)
-            exp_logger.debug(f"[latency test] put task to sheduling queue")
-            self.data_trans_management.put_data_management_task(task_def)
-            # if int(task_def['id']) % 1000 == 1:
-            logger.debug(
-                "Task {} submitted for App {}, {}".format(
-                    task_id, task_def["func_name"], waiting_message
-                )
-            )
+            if compress_option[0] is not None:
+                compress_app = self.append_compress_task(task_def, app_fu)
+                send_task_to_scheduler(task_def)
+             
+                if compress_app is not None:
+                    send_task_to_scheduler(compress_app.task_def)
+                    decompress_app = self.append_decompress_task(compress_app, app_fu)
+                    send_task_to_scheduler(decompress_app.task_def)
+                   
+            elif compress_option[1] is not None:
+                return app_fu
+            elif compress_option[2] is not None:
+                return app_fu
+            else:
+                send_task_to_scheduler(task_def)
+               
 
         else:
             task_def["status"] = States.pending
@@ -1180,6 +1275,30 @@ class DataFlowKernel(object):
                 provider.script_dir = os.path.join(run_dir, "local_submit_scripts")
 
         channel.makedirs(channel.script_dir, exist_ok=True)
+
+    def append_compress_task(self, to_be_compressed_task, cur_appfu):
+        # firstly create a task record, then add this relation to table
+        # Users currently needs to specify the compressor.
+        # raw_task_app = cur_appfu
+        compressor = to_be_compressed_task['compress_option'][0]
+        if compressor in SUPPORT_COMPRESSOR:
+            app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None,None))
+            graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+            return app
+        else:
+            logger.warn("Not support this compress method.")
+            return None
+        
+    def append_decompress_task(self, compressed_task_app, source_app):
+        compressed_task_def = compressed_task_app.task_def
+        compressor = compressed_task_def['compress_option'][1]
+        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor,None))
+        graphHelper.decompress_task_tbl[source_app] = de_compress_app
+        return de_compress_app
+
+    
+        
+
 
     def add_executors(self, executors):
         for executor in executors:
@@ -1274,6 +1393,7 @@ class DataFlowKernel(object):
             self.scheduler.kill_scheduler()
             if self.execution_recorder:
                 self.execution_recorder.kill_writer()
+                self.compress_recorder.kill_writer()
 
         logger.info("DFK cleanup complete")
 
@@ -1346,7 +1466,6 @@ class DataFlowKernel(object):
                     task_record["id"], task_record["app_fu"].stderr
                 )
             )
-
 
 class TaskWithPriority:
     def __init__(self, task):

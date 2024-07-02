@@ -16,7 +16,6 @@ logging.getLogger("sklearnex").setLevel(logging.CRITICAL)
 from sklearn.ensemble import RandomForestRegressor
 import concurrent.futures
 import time
-from unifaas.dataflow.helper.execution_recorder import write_workflow_prediction_result
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from concurrent.futures import Future
@@ -217,8 +216,6 @@ class ExecutionPredictor:
         task_record["predict_execution"] = predict_execution
         task_record["predict_output"] = predict_output
         task_record["input_size"] = input_size
-        info = (func_name, input_size, predict_output, predict_execution)
-        write_workflow_prediction_result(self.workflow_path, info)
         return (func_name, input_size, predict_execution, predict_output)
 
     def _get_executors_info(self):

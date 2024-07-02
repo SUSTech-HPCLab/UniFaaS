@@ -97,6 +97,8 @@ class Scheduler:
         for ep in self.resources.keys():
             self.data_ready_queue_dict[ep] = PriorityQueue()
 
+        self.data_compress_task_que = Queue()
+        self.data_compress_target_task_que = Queue()
         if self.scheduling_strategy == "IC_Opt":
             self.ep_selection = GreedySelection(
                 self.resource_poller,
@@ -444,8 +446,50 @@ class Scheduler:
             ready_q = self.data_ready_queue_dict[key]
             q_size = min(q_size, ready_q.qsize())
         return q_size
+    
+    def _DATA_submit_compression_target_task(self,task_record):
+        if task_record['compress_option'][3] is None:
+            raise RuntimeError("Don't put a non compression target task into the queue")
+        self.data_compress_target_task_que.put(task_record)
+        for dep in task_record['depends']:
+            if not dep.done():
+                dep_task = dep.task_def
+                if dep_task['compress_option'][2] is not None:
+                    dep_task['executor'] = task_record['executor']
+                    self.resource_poller.update_status_when_submit_one_task(dep_task['executor'])
+                    dep_task["submitted_to_poller"] = True
+                    dep_task["status"] = States.data_managing
+                    self.data_manager.group_transfer(dep_task)
+
 
     def _DATA_handle_ready(self):
+        # firstly submit compress task
+        while not self.data_compress_task_que.empty():
+            task_record = self.data_compress_task_que.get()
+            target_ep = task_record['executor']  # executor is assigned before putting into the queue 
+            self.resource_poller.update_status_when_submit_one_task(target_ep)
+            task_record["submitted_to_poller"] = True
+            task_record["status"] = States.data_managing
+            self.data_manager.group_transfer(task_record)
+
+        # secondly submit compress target task periodically
+        cur_target_size = self.data_compress_target_task_que.qsize()
+        while cur_target_size > 0:
+            task_record = self.data_compress_target_task_que.get()
+            all_done = True
+            for dep in task_record['depends']:
+                if isinstance(dep, Future) and not dep.done():
+                    all_done = False
+            if all_done:
+                self.resource_poller.update_status_when_submit_one_task(task_record['executor'])
+                task_record["submitted_to_poller"] = True
+                task_record["status"] = States.data_managing
+                self.data_manager.group_transfer(task_record)
+            else:
+                self.data_compress_target_task_que.put(task_record)
+            cur_target_size -= 1
+
+
         cur_resource = self.resource_poller.get_real_time_status()
         idle_workers = []
         endpoints = []
@@ -475,6 +519,16 @@ class Scheduler:
                         continue
                     if not task_record["never_change"]:
                         task_record["executor"] = target_ep
+                        
+                    if task_record['compress_option'][3] is not None:
+                        # do not transfer task until deps finished
+                        self._DATA_submit_compression_target_task(task_record)
+                        task_record["submitted_to_poller"] = True
+                        task_record["status"] = States.data_managing
+                        idle_workers[i] -= 1
+                        break
+
+
                     self.resource_poller.update_status_when_submit_one_task(target_ep)
                     task_record["submitted_to_poller"] = True
                     task_record["status"] = States.data_managing
@@ -482,6 +536,14 @@ class Scheduler:
                     idle_workers[i] -= 1
                     break
             attempt_times -= 1
+
+    def _DATA_put_compress_task_to_que(self, task_record):
+        if 'compress_option' in task_record and task_record['compress_option'][1] is not None:
+            task_record['executor'] = task_record['depends'][0].task_def['executor']
+            self.data_compress_task_que.put(task_record)
+            return True
+        
+        return False
 
     def data_locality_schedule(self, task_queue):
         # TODO: This scheduling method should be moved in to ep_selection file
@@ -497,7 +559,9 @@ class Scheduler:
                         all_done = False
                         break
                 if all_done:
-                    self.put_task_to_data_ready_queue(task_record)
+                    succ = self._DATA_put_compress_task_to_que(task_record)
+                    if not succ:
+                        self.put_task_to_data_ready_queue(task_record)
             cur_qsize -= 1
         self._DATA_handle_ready()
 
@@ -643,6 +707,21 @@ class Scheduler:
                     task_record["executor"] = allocate_res[fu]
             counter += 1
 
+
+    def assign_same_executor_with_compressed_task(self,task_record):
+        if len(task_record["depends"]) == 1 and 'compress_option' in task_record  and task_record["compress_option"][1] is not None:
+            pre_task  = task_record["depends"][0].task_def
+            task_record["executor"] = pre_task["executor"]
+            return
+
+        # check if the depend task is a decompression task
+        for dep in task_record["depends"]:
+            pre_task = dep.task_def
+            if 'compress_option' in pre_task and pre_task["compress_option"][2] is not None:
+                pre_task['executor'] = task_record['executor']
+            
+
+
     def random_schedule(self):
         batch_size = 500
         cur_qsize = graphHelper.task_queue.qsize()
@@ -668,9 +747,7 @@ class Scheduler:
                 if task_record["status"] == States.scheduling:
                     if not task_record["never_change"]:
                         task_record["executor"] = random.choice(executor_list)
-                        print("Test for transfer function : assign to lab")
-                        task_record["executor"] = "EVA"
-
+                        self.assign_same_executor_with_compressed_task(task_record)
                     if len(task_record["depends"]) <= 0:
                         task_record["status"] = States.data_managing
                         self.data_manager.handle_task_record_data_managing(task_record)
@@ -885,6 +962,7 @@ class Scheduler:
                 f"[MicroExp] end scheduling, task {task_record['id']} at time {time.time()}"
             )
         task_record["visited"] = True
+        self.assign_same_executor_with_compressed_task(task_record)
         cur_vis += 1
         if cur_node in graphHelper.raw_graph.keys():
             for val in graphHelper.raw_graph[cur_node]:
@@ -892,6 +970,28 @@ class Scheduler:
                     val, cur_vis, resource_rank, partition_res
                 )
         return cur_vis
+    
+
+    def check_all_deps_finished(self, task_record):
+        all_done = True
+        # if task_record is the target
+        if task_record['compress_option'][3] is not None:
+            for dep in task_record["depends"]:
+                if isinstance(dep, Future) and dep.done():
+                    continue
+                elif isinstance(dep, Future) and not dep.done():
+                    dep_task = dep.task_def
+                    if dep_task['compress_option'][2] is not None and dep_task['depends'][0].done():
+                        continue
+                    else:
+                        all_done = False
+                        break
+        else:
+            for dep in task_record["depends"]:
+                if isinstance(dep, Future) and not dep.done():
+                    all_done = False
+                    break
+        return all_done
 
     def dynamic_adjust(self, task_record, task_res):
         if self.scheduling_strategy == "RANDOM" or self.scheduling_strategy == "DFS":
@@ -906,6 +1006,12 @@ class Scheduler:
                         child, input_data=task_res, invoke=True
                     )
         elif self.scheduling_strategy == "ADVANCE":
+            """
+            -------------------------------------------------------------------------------
+            WARNING: This code has been deprecated and not be tested in production.
+                    It remains here for future updates. 
+            -------------------------------------------------------------------------------
+            """
             tmp_exe = task_record["executor"]
             # remove one element from the eft_queue
             if not self.eft_queue[tmp_exe].empty():
@@ -933,7 +1039,6 @@ class Scheduler:
                     )
         elif (
             self.scheduling_strategy == "HEFT"
-            or self.dynamic_adjust_strategy == "GREEDY"
         ):
             appfu = task_record["app_fu"]
             child_task_fu_list = self.raw_graph[appfu]
@@ -947,24 +1052,32 @@ class Scheduler:
                     )
         elif (
             self.scheduling_strategy == "DATA"
-            or self.dynamic_adjust_strategy == "DATA"
-            or self.dynamic_adjust_strategy == "GREEDY"
+            or (self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT")
         ):
             appfu = task_record["app_fu"]
             child_task_fu_list = self.raw_graph[appfu]
             child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
             for child in child_task_list:
-                all_done = True
-                for parent in child["depends"]:
-                    if isinstance(parent, Future) and not parent.done():
-                        all_done = False
-                        break
+
+                all_done = self.check_all_deps_finished(child)
                 if all_done:
-                    # send to DATA_ready_queue
                     if self.dynamic_adjust_strategy == "GREEDY":
                         self.ep_selection.put_task_record(child)
                     else:
-                        self.put_task_to_data_ready_queue(child)
+                        succ = self._DATA_put_compress_task_to_que(child)
+                        
+                        #decompress task will be handled later
+                        if child['compress_option'][2] is not None:
+                            target_app = graphHelper.decompress_to_target_tbl[child['app_fu']]
+                            target_task= target_app.task_def
+                            is_target_dep_done = self.check_all_deps_finished(target_task)
+                            if is_target_dep_done:
+                                self.put_task_to_data_ready_queue(target_task)
+
+                            continue
+
+                        if not succ:
+                            self.put_task_to_data_ready_queue(child)
 
         elif self.scheduling_strategy == "AUTO" or self.scheduling_strategy == "NO_OP":
             self.auto_scheduling.handler(task_record, task_res)

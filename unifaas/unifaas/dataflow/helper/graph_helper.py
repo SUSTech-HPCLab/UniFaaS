@@ -15,6 +15,12 @@ class GraphHelper:
         self.entry_task_queue = Queue()
         self.task_queue = Queue()
 
+        # Attributes for compress
+        self.compress_task_tbl = {} # src_app : compress_app
+        self.decompress_task_tbl = {} # src_app: decompress_app
+        self.decompress_to_target_tbl = {} # decompress_app : target
+
+
     @staticmethod
     def generate_dag_info(graphHelper):
         # Generate a pure dag
@@ -32,7 +38,7 @@ class GraphHelper:
             task_record = graphHelper.task_queue.get()
             app_fu = task_record["app_fu"]
             task_id = task_record["id"]
-            id_to_task[task_id] = task_record
+            id_to_task[task_id] = task_record  
             fu_to_task[app_fu] = task_record
             indegree_dict[task_id] = len(task_record["depends"])
             if len(task_record["depends"]) == 0:

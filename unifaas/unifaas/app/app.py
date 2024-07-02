@@ -89,6 +89,7 @@ def python_app(
     ignore_for_cache: Optional[List[str]] = None,
     join: bool = False,
     never_change: bool = False,
+    compressor=None,
 ):
     """Decorator function for making python apps.
 
@@ -123,6 +124,7 @@ def python_app(
                 ignore_for_cache=ignore_for_cache,
                 join=join,
                 never_change=never_change,
+                compress_option=(compressor,None,None,None),
             )
 
         return wrapper(func)

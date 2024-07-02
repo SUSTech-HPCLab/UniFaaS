@@ -296,14 +296,118 @@ class TransferRecorder(ExecutionRecorder):
             logger.warn(f"[Recorder] Write execution record failed: {e}")
 
 
-def write_workflow_prediction_result(file_path, info):
-    # if there is already a file, remove it and create a new one
-    info_str = ""
-    with open(file_path, "a") as f:
-        for i in range(len(info) - 1):
-            info_str += f"{info[i]},"
-        if isinstance(info[-1], dict):
-            for key, value in info[-1].items():
-                info_str += f"{key}|{value}|"
-            info_str += "\n"
-        f.write(info_str)
+
+
+class CompressionRecorder(ExecutionRecorder):
+    """
+    Record the compression (runtime) info for each task.
+    Analysis the data to do scheduling with compression.
+    """
+    def __init__(self, record_dir=None):
+        self._UNIFAAS_HOME = os.path.join(pathlib.Path.home(), ".unifaas")
+        if record_dir is None:
+            self._RECORD_DIR = self._UNIFAAS_HOME
+        else:
+            self._RECORD_DIR = record_dir
+        
+        self.record_format = [
+            "func_name",
+            "input_size",
+            "output_name",
+            "output_size",
+            "compression_time",
+            "decompression_time",
+            "compressed_size",
+            "compress_ep",
+            "decompress_ep",
+        ]
+        self.database = os.path.join(self._RECORD_DIR, "compression_history.db")
+        self.table_name = "compression_history"
+        self._init_db()
+        self.sql_queue = Queue()
+        self.write_record_thread = threading.Thread(
+            target=self.writer_record_periodically, args=()
+        )
+        self._kill_event = threading.Event()
+        self.write_record_thread.daemon = True
+        self.write_record_thread.start()
+
+    def kill_writer(self):
+        self.sql_queue.put(("kill",None))
+        self.write_record_thread.join()
+
+    
+    def _create_table_sql(self):
+        record_format = self.record_format
+        sql = f"CREATE TABLE {self.table_name} (ID INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \n"
+        for i, col in enumerate(record_format):
+            if col in ["func_name", "output_name", "compress_ep", "decompress_ep"]:
+                sql += f"{col} TEXT NOT NULL"
+            else:
+                sql += f"{col} NUMERIC NOT NULL"
+            sql += ");" if i == len(record_format) - 1 else ", \n"
+        return sql
+
+
+    def _init_db(self):
+        if not os.path.exists(self.database):
+            if not os.path.exists(self._UNIFAAS_HOME):
+                os.makedirs(name=self._UNIFAAS_HOME, exist_ok=True, mode=0o777)
+            with open(self.database, "w") as f:
+                pass
+            conn = sqlite3.connect(self.database, check_same_thread=False)
+            cursor = conn.cursor()
+            sql = self._create_table_sql()
+            cursor.execute(sql)
+            conn.commit()
+
+
+    def write_record(
+        self,
+        info,
+    ):
+        try:
+            info_list = [
+                info['func_name'],
+                info['input_size'],
+                info['output_name'],
+                info['output_size'],
+                info['compression_time'],
+                info['decompression_time'],
+                info['compressed_size'],
+                info['compress_ep'],
+                info['decompress_ep'],
+            ]
+            sql, params = self._insert_sql(info_list)
+            self.sql_queue.put((sql, params))
+        except Exception as e:
+            logger.warn(f"[Recorder] Write compression record failed: {e}")
+
+    def _insert_sql(self, info_list):
+        columns = ", ".join(self.record_format)
+        placeholders = ", ".join(["?"] * len(self.record_format))
+        sql = f"INSERT INTO {self.table_name} ({columns}) VALUES ({placeholders})"
+        return sql, info_list
+
+
+    def writer_record_periodically(self):
+        while not self._kill_event.is_set():
+            conn = None
+            if not self.sql_queue.empty():
+                conn = sqlite3.connect(self.database, check_same_thread=False)
+                cursor = conn.cursor()
+            cur_qsize = self.sql_queue.qsize()
+            while not self.sql_queue.empty() and conn is not None:
+                sql, params = self.sql_queue.get()
+                if sql == "kill":
+                    self._kill_event.set()
+                    break
+
+                cursor.execute(sql, params)
+                conn.commit()
+            if cur_qsize > 0:
+                logger.info(
+                    f"[Recorder] Write {cur_qsize} compression records to database"
+                )
+            time.sleep(5)
+

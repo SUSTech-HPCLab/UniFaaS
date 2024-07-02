@@ -89,9 +89,9 @@ class DataTransferManager(object):
         args = task_record["args"]
         kwargs = task_record["kwargs"]
         # list concat
-        data_to_trans = DataTransferManager.check_data_transfer(
+        data_to_trans = DataTransferManager.check_pure_data(
             args
-        ) + DataTransferManager.check_data_transfer(kwargs)
+        ) + DataTransferManager.check_pure_data(kwargs)
         return data_to_trans
 
     def _set_pending_for_group_transfer(self, task_record):
@@ -386,6 +386,28 @@ class DataTransferManager(object):
             if isinstance(res, dict):
                 for val in res.values():
                     data_trans_list += DataTransferManager.check_data_transfer(val)
+        except Exception as e:
+            return []
+
+        return data_trans_list
+    
+
+    @staticmethod
+    def check_pure_data(res):
+        # do not detect the future type data in this function
+        try:
+
+            data_trans_list = []
+            if isinstance(res, RemoteFile) or isinstance(res, RemoteDirectory):
+                data_trans_list.append(res)
+
+            if isinstance(res, list) or isinstance(res, set) or isinstance(res, tuple):
+                for item in res:
+                    data_trans_list += DataTransferManager.check_pure_data(item)
+
+            if isinstance(res, dict):
+                for val in res.values():
+                    data_trans_list += DataTransferManager.check_pure_data(val)
         except Exception as e:
             return []
 
