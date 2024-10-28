@@ -120,6 +120,7 @@ class Scheduler:
         self.task_duplicate_queue.put(task_record)
 
     def duplicate_schedule(self):
+        # Note: This function is deprecated, we do not mentioned this function in our paper.
         while not self._kill_event.is_set():
             cur_qsize = self.task_duplicate_queue.qsize()
             counter = cur_qsize
@@ -452,9 +453,10 @@ class Scheduler:
             raise RuntimeError("Don't put a non compression target task into the queue")
         self.data_compress_target_task_que.put(task_record)
         for dep in task_record['depends']:
+            # launch all decompress task for a target task
             if not dep.done():
                 dep_task = dep.task_def
-                if dep_task['compress_option'][2] is not None:
+                if dep_task['compress_option'][2] is not None and (dep_task["status"] == States.scheduling or dep_task["status"] == States.dynamic_adjust):
                     dep_task['executor'] = task_record['executor']
                     self.resource_poller.update_status_when_submit_one_task(dep_task['executor'])
                     dep_task["submitted_to_poller"] = True
@@ -1055,14 +1057,26 @@ class Scheduler:
             or (self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT")
         ):
             appfu = task_record["app_fu"]
-            child_task_fu_list = self.raw_graph[appfu]
-            child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
+            # child_task_fu_list = self.raw_graph[appfu]
+            # child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
+            child_task_fu_list = graphHelper.raw_graph[appfu]
+            child_task_list = [fu.task_def for fu in child_task_fu_list]
+
             for child in child_task_list:
 
                 all_done = self.check_all_deps_finished(child)
                 if all_done:
                     if self.dynamic_adjust_strategy == "GREEDY":
-                        self.ep_selection.put_task_record(child)
+                        if child['compress_option'][2] is not None:
+                            target_app = graphHelper.decompress_to_target_tbl[child['app_fu']]
+                            target_task= target_app.task_def
+                            is_target_dep_done = self.check_all_deps_finished(target_task)
+                            if is_target_dep_done:
+                                self.ep_selection.put_task_record(target_task)
+                            continue
+                        else:
+                            self.ep_selection.put_task_record(child)
+        
                     else:
                         succ = self._DATA_put_compress_task_to_que(child)
                         

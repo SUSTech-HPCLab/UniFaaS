@@ -136,6 +136,14 @@ class TaskLauncher:
                         tmp_deque.appendleft(task_record)
                         upper_bound_iter -= 1
                         continue
+
+                # do not steal the compress and decompress task
+                if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None:
+                    tmp_deque.appendleft(task_record)
+                    upper_bound_iter -= 1 
+                    continue
+
+            
                 cur_cost = self.resource_poller.calculate_ideal_execution_duration(
                     key, task_record
                 )

@@ -7,6 +7,7 @@ from unifaas.executors.funcx.executor import FuncXExecutor
 from funcx.sdk.file import RemoteFile, RemoteDirectory
 import time
 import re
+from unifaas.dataflow.futures import AppFuture
 
 logger = logging.getLogger("unifaas")
 from concurrent.futures import Future
@@ -214,6 +215,41 @@ class TransferPredictor:
             + transfer_size / (bandwith_to_bytes / num_workers)
         )
         return pure_trans_time
+    
+    def replace_args_and_kwargs_for_target(self,task_record):
+        app_args = task_record['args']
+        app_kwargs = task_record['kwargs']
+    
+        # Replace args if task is a target task
+        compress_args = []
+        for tmp_arg in app_args:
+            if isinstance(tmp_arg, AppFuture):
+                tmp_record = tmp_arg.task_def
+                if tmp_record['compress_option'][2] is not None:
+                    compress_args.append(tmp_record['depends'][0])
+                else:
+                    compress_args.append(tmp_arg)
+            else:
+                compress_args.append(tmp_arg)
+        app_args = tuple(compress_args)
+
+        # Replace kwargs if task is a target task
+        compress_kwargs = {}
+        for tmp_key in app_kwargs:
+            dep = app_kwargs[tmp_key]
+            if isinstance(dep, AppFuture):
+                tmp_record = dep.task_def
+                if tmp_record['compress_option'][2] is not None:
+                    compress_kwargs[tmp_key] = tmp_record['depends'][0]
+                else:
+                    compress_kwargs[tmp_key] = dep
+            else:
+                compress_kwargs[tmp_key] = dep
+
+        app_kwargs = compress_kwargs
+
+        return app_args, app_kwargs
+
 
     def real_time_predict_comm_cost_for_task_record(self, task_record, ep):
         # task: task record, contains the dependencies
@@ -222,6 +258,10 @@ class TransferPredictor:
         args = task_record["args"]
         kwargs = task_record["kwargs"]
         # list concat
+        if task_record['compress_option'][3] is not None: 
+            args , kwargs = self.replace_args_and_kwargs_for_target(task_record)
+
+
         data_to_trans = TransferPredictor.check_data_transfer(
             args
         ) + TransferPredictor.check_data_transfer(kwargs)

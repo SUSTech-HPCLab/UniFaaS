@@ -206,9 +206,10 @@ class ResourceStatusPoller(object):
 
     def update_status_when_submit_one_task(self, executor, task_record=None):
         if task_record is not None:
-            self.cur_being_executed_time[executor] += task_record["predict_execution"][
-                executor
-            ]
+            if "predict_execution" in task_record:
+                self.cur_being_executed_time[executor] += task_record["predict_execution"][
+                    executor
+                ]
 
         if self.real_time_status[executor]["closed"]:
             self.real_time_status[executor]["submit_counter"] += 1

@@ -68,9 +68,9 @@ class TaskStatusTracker:
             return
         self.running_tasks -= 1
         self.executed_tasks += 1
-        child_tasks = graphHelper.workflow_graph[task_record["id"]]
+        child_tasks = graphHelper.raw_graph[task_record["app_fu"]]
         for child in child_tasks:
-            child_record = graphHelper.id_to_task[child]
+            child_record = child.task_def
             if self.dep_count(child_record) == 1:
                 self.ready_tasks += 1
                 self.not_ready_tasks -= 1

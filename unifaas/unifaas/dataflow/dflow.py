@@ -470,8 +470,10 @@ class DataFlowKernel(object):
                                 self.tmp_compress_record[task_record['app_fu']]['output_name'] = res['result'].file_name
                             else:
                                 self.tmp_compress_record[task_record['app_fu']]['output_name'] = "default"
+                            exp_logger.info(f"{self.tmp_compress_record[task_record['app_fu']]}")
                         elif task_record['compress_option'][1] is not None:
                             if len(task_record['depends']) > 0:
+                                # For a compress task, it only have one depend.
                                 parent_app = task_record['depends'][0]
                                 if parent_app in self.tmp_compress_record:
                                     self.tmp_compress_record[parent_app]['compression_time'] = res['execution_time']
@@ -1086,23 +1088,7 @@ class DataFlowKernel(object):
         else:
             self.tasks[task_id] = task_def
 
-        #replace args and kwargs if task is a target task
-        compress_args = []
-        for tmp_arg in app_args:
-            if tmp_arg in graphHelper.decompress_task_tbl:
-                compress_args.append(graphHelper.decompress_task_tbl[tmp_arg])
-            else:
-                compress_args.append(tmp_arg)
-        app_args = tuple(compress_args)
-
-        compress_kwargs = {}
-        for tmp_key in app_kwargs:
-            dep = app_kwargs[tmp_key]
-            if dep in  graphHelper.decompress_task_tbl:
-                compress_kwargs[tmp_key] = graphHelper.decompress_task_tbl[dep]
-            else:
-                compress_kwargs[tmp_key] = dep
-        app_kwargs = compress_kwargs
+        app_args, app_kwargs = self.replace_args_and_kwargs(app_args, app_kwargs)
 
 
         # Get the list of dependencies for the task
@@ -1143,7 +1129,10 @@ class DataFlowKernel(object):
             dep_task = dep.task_def
             if 'compress_option' in dep_task and dep_task['compress_option'][2] is not None:
                 graphHelper.decompress_to_target_tbl[dep] = app_fu
-                task_def['compress_option'] = (None,None,None,True) # src -> compress -> decompress -> target
+                if task_def['compress_option'][0] is None:
+                    task_def['compress_option'] = (None,None,None,True) # src -> compress -> decompress -> target
+                else:
+                    task_def['compress_option'] = (task_def['compress_option'][0],None,None,True)
 
 
         self.task_status_tracker.update_when_submit_to_dfk(task_def)
@@ -1181,11 +1170,11 @@ class DataFlowKernel(object):
 
         def send_task_to_scheduler(task_def):
             self.scheduler.put_scheduling_task(task_def)
+            graphHelper.put_scheduling_task(task_def)
             self.data_trans_management.put_data_management_task(task_def)
 
         if self.enable_schedule:
             task_def["status"] = States.scheduling
-            graphHelper.put_scheduling_task(task_def)
             if compress_option[0] is not None:
                 compress_app = self.append_compress_task(task_def, app_fu)
                 send_task_to_scheduler(task_def)
@@ -1276,23 +1265,34 @@ class DataFlowKernel(object):
 
         channel.makedirs(channel.script_dir, exist_ok=True)
 
-    def append_compress_task(self, to_be_compressed_task, cur_appfu):
+    def append_compress_task(self, to_be_compressed_task, cur_appfu, internal_submit=False):
         # firstly create a task record, then add this relation to table
         # Users currently needs to specify the compressor.
         # raw_task_app = cur_appfu
         compressor = to_be_compressed_task['compress_option'][0]
-        if compressor in SUPPORT_COMPRESSOR:
+        if compressor not in SUPPORT_COMPRESSOR:
+            logger.warn("Not support this compress method.")
+            return None
+
+
+        if not internal_submit:
             app = self.submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None,None))
             graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
             return app
         else:
-            logger.warn("Not support this compress method.")
-            return None
+            app = self.internal_submit(func=compress_func, app_args=tuple([cur_appfu,compressor]), compress_option=(None, compressor, None,None))
+            graphHelper.compress_task_tbl[to_be_compressed_task['app_fu']] = app 
+            return app
+                
         
-    def append_decompress_task(self, compressed_task_app, source_app):
+        
+    def append_decompress_task(self, compressed_task_app, source_app, internal_submit=False):
         compressed_task_def = compressed_task_app.task_def
         compressor = compressed_task_def['compress_option'][1]
-        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor,None))
+        if not internal_submit:
+            de_compress_app = self.submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor,None))
+        else:
+            de_compress_app = self.internal_submit(func=decompress_func, app_args=tuple([compressed_task_app,compressor]), compress_option=(None, None, compressor,None))
         graphHelper.decompress_task_tbl[source_app] = de_compress_app
         return de_compress_app
 
@@ -1466,6 +1466,140 @@ class DataFlowKernel(object):
                     task_record["id"], task_record["app_fu"].stderr
                 )
             )
+
+
+    # This function is used to submit de/compress function to dfk
+    def internal_submit(
+        self,
+        func,
+        app_args,
+        executor=None,
+        app_kwargs={},
+        compress_option=(None,None,None,None),
+    ):
+        """
+        This function should only be invoked by internal function
+        """
+     
+        task_id = self.task_count
+        self.task_count += 1
+  
+       
+        task_def = {
+            "depends": None,
+            "executor": executor,
+            "func_name": func.__name__,
+            "memoize": False,
+            "hashsum": None,
+            "exec_fu": None,
+            "fail_count": 0,
+            "fail_cost": 0,
+            "fail_history": [],
+            "from_memo": None,
+            "ignore_for_cache": None,
+            "join": False,
+            "joins": None,
+            "status": States.unsched,
+            "try_id": 0,
+            "id": task_id,
+            "time_invoked": datetime.datetime.now(),
+            "time_returned": None,
+            "try_time_launched": None,
+            "try_time_returned": None,
+            "resource_specification": None,
+            "modified_times": 0,
+            "submitted_to_poller": False,
+            "never_change": False,
+            "important": False,
+            "compress_option": compress_option, 
+        }
+
+        app_fu = AppFuture(task_def)
+
+        task_def.update(
+            {"args": app_args, "func": func, "kwargs": app_kwargs, "app_fu": app_fu}
+        )
+        if task_id in self.tasks:
+            raise DuplicateTaskError(
+                "internal consistency error: Task {0} already exists in task list".format(
+                    task_id
+                )
+            )
+        else:
+            self.tasks[task_id] = task_def
+
+        
+        depends = self._gather_all_deps(app_args, app_kwargs)
+        task_def["depends"] = depends
+        task_def["task_launch_lock"] = threading.Lock()
+        task_def["task_data_trans_lock"] = threading.Lock()
+        task_def["data_trans_times"] = 0
+        task_def["handle_managing_times"] = 0
+
+        app_fu.add_done_callback(partial(self.handle_app_update, task_def))
+
+    
+        self.task_status_tracker.update_when_submit_to_dfk(task_def)
+        self._send_task_log_info(task_def)
+
+        for d in depends:
+
+            def callback_adapter(dep_fut):
+                self.launch_if_ready(task_def)
+
+            try:
+                d.add_done_callback(callback_adapter)
+            except Exception as e:
+                logger.error(
+                    "add_done_callback got an exception {} which will be ignored".format(
+                        e
+                    )
+                )
+
+        task_def["status"] = States.scheduling
+        
+        return app_fu
+
+
+    
+    def replace_args_and_kwargs(self,app_args, app_kwargs):
+        """
+        Replace args and kwargs if task is a compression target task.
+        
+        This function checks if elements in app_args and app_kwargs are present in
+        graphHelper.decompress_task_tbl. If they are, it replaces them with the corresponding
+        value from graphHelper.decompress_task_tbl.
+
+        Parameters:
+        app_args (tuple): The original arguments.
+        app_kwargs (dict): The original keyword arguments.
+        graphHelper (object): An object with a decompress_task_tbl attribute.
+
+        Returns:
+        tuple: A tuple containing the modified app_args and app_kwargs.
+        """
+    
+        # Replace args if task is a target task
+        compress_args = []
+        for tmp_arg in app_args:
+            if tmp_arg in graphHelper.decompress_task_tbl:
+                compress_args.append(graphHelper.decompress_task_tbl[tmp_arg])
+            else:
+                compress_args.append(tmp_arg)
+        app_args = tuple(compress_args)
+
+        # Replace kwargs if task is a target task
+        compress_kwargs = {}
+        for tmp_key in app_kwargs:
+            dep = app_kwargs[tmp_key]
+            if dep in graphHelper.decompress_task_tbl:
+                compress_kwargs[tmp_key] = graphHelper.decompress_task_tbl[dep]
+            else:
+                compress_kwargs[tmp_key] = dep
+        app_kwargs = compress_kwargs
+
+        return app_args, app_kwargs
+
 
 class TaskWithPriority:
     def __init__(self, task):
