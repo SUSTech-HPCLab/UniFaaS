@@ -9,7 +9,7 @@ import time
 from unifaas.dataflow.helper.graph_helper import graphHelper
 import logging
 from concurrent.futures import Future
-from unifaas.dataflow.helper.execution_predictor import ExecutionPredictor
+from unifaas.dataflow.helper.execution_predictor import ExecutionPredictor, CompressionPredictor
 from unifaas.dataflow.helper.transfer_predictor import TransferPredictor
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.data_transfer_management import DataTransferManager
@@ -31,7 +31,8 @@ class Scheduler:
         executors,
         enable_execution_predictor=True,
         scheduling_strategy=None,
-        recorder=None,
+        execution_recorder=None,
+        compress_recorder=None,
         workflow_name="default",
         duplicated_tasks=None,
         enable_duplicate=False,
@@ -42,11 +43,12 @@ class Scheduler:
             raise Exception("Invalid scheduling strategy")
         else:
             self.scheduling_strategy = scheduling_strategy
-        if enable_execution_predictor and recorder is not None:
+        if enable_execution_predictor and execution_recorder is not None:
             self.execution_predictor = ExecutionPredictor(
-                executors, recorder, workflow_name
+                executors, execution_recorder, workflow_name
             )
             self.transfer_predictor = TransferPredictor(executors)
+            self.compress_predictor = CompressionPredictor(executors, compress_recorder)
         self.executors = executors
         self.FIFO_ready_queue = Queue()
 
@@ -104,6 +106,7 @@ class Scheduler:
                 self.resource_poller,
                 self.execution_predictor,
                 self.transfer_predictor,
+                self.compress_predictor,
                 self.data_manager,
                 "IC",
             )
@@ -112,6 +115,7 @@ class Scheduler:
                 self.resource_poller,
                 self.execution_predictor,
                 self.transfer_predictor,
+                self.compress_predictor,
                 self.data_manager,
                 "HEFT",
             )
@@ -983,14 +987,18 @@ class Scheduler:
                     continue
                 elif isinstance(dep, Future) and not dep.done():
                     dep_task = dep.task_def
+                    exp_logger.info(f"checking dep id {dep_task['id']} compress_option: {dep_task['compress_option']}   dep'dep {dep_task['depends'][0].task_def['id']}" )
                     if dep_task['compress_option'][2] is not None and dep_task['depends'][0].done():
                         continue
                     else:
+                        exp_logger.info(f"checking error dep {dep_task['id']}|{dep_task['func_name']} for real target record {task_record['id']}|{task_record['func_name']}")
                         all_done = False
                         break
         else:
             for dep in task_record["depends"]:
                 if isinstance(dep, Future) and not dep.done():
+                    dep_task = dep.task_def
+                    exp_logger.info(f"checking error dep {dep_task['id']}|{dep_task['func_name']} for real target record {task_record['id']}|{task_record['func_name']}")
                     all_done = False
                     break
         return all_done
@@ -1056,6 +1064,12 @@ class Scheduler:
             self.scheduling_strategy == "DATA"
             or (self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT")
         ):
+            if self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT":
+                #DHEFT的压缩目前只支持全自动形式，不能手动制定compressor
+                if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None:
+                    # DHEFT 处理压缩的逻辑与DATA/制定compressor的逻辑不通
+                    return
+
             appfu = task_record["app_fu"]
             # child_task_fu_list = self.raw_graph[appfu]
             # child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
@@ -1079,13 +1093,15 @@ class Scheduler:
         
                     else:
                         succ = self._DATA_put_compress_task_to_que(child)
-                        
                         #decompress task will be handled later
                         if child['compress_option'][2] is not None:
+                            exp_logger.info(f"in checking decompress task {child}")
+
                             target_app = graphHelper.decompress_to_target_tbl[child['app_fu']]
                             target_task= target_app.task_def
                             is_target_dep_done = self.check_all_deps_finished(target_task)
                             if is_target_dep_done:
+                                exp_logger.info(f"putting decompress task {child}")
                                 self.put_task_to_data_ready_queue(target_task)
 
                             continue

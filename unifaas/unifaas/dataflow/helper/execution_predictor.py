@@ -73,7 +73,6 @@ class ExecutionPredictor:
     def calculate_func_input_size(self, task_record):
         import sys
 
-        input_size = 0
 
         def cal_remote_file_size(d):
             try:
@@ -81,24 +80,22 @@ class ExecutionPredictor:
                     d = d.result()
 
                 if isinstance(d, list) or isinstance(d, tuple):
-                    res = 0
-                    for sub_d in d:
-                        res += cal_remote_file_size(sub_d)
-                    return res
+                    return sum((cal_remote_file_size(sub_d) or 0) for sub_d in d)
+                
                 elif isinstance(d, dict):
-                    res = 0
-                    for key in d.keys():
-                        res += cal_remote_file_size(d[key])
-                    return res
+                    return sum((cal_remote_file_size(d[key]) or 0) for key in d.keys())
+                
                 elif isinstance(d, RemoteFile):
-                    return d.get_file_size()
+                    return d.get_file_size() or 0
+                
                 elif isinstance(d, RemoteDirectory):
-                    return d.get_directory_size()
+                    return d.get_directory_size() or 0
                 else:
-                    return sys.getsizeof(d)
+                    return sys.getsizeof(d) or 0
             except Exception as e:
                 return 0
-
+            
+        input_size = 0
         for arg in task_record["args"]:
             input_size += cal_remote_file_size(arg)
         for key in task_record["kwargs"].keys():
@@ -331,3 +328,190 @@ class ExecutionPredictor:
             )
             pickle.dump(regressor, f)
         return regressor
+
+
+
+class CompressionPredictor:
+    """CompressionPredictor predicts compression time and size from logs.
+    
+    - Reads logs from compression_history.db
+    - Builds models to predict compression metrics
+    - Predicts compression size with given input
+    - Input: func_name, output_size, compress_ep
+    - Output: compression_size
+    """
+
+    def __init__(self, executors,recorder):
+        self.executors = executors
+        self.status_poller = ResourceStatusPoller(executors)
+        self.recorder = recorder
+        self.record_dir = os.path.join(UNIFAAS_HOME, "compression_history.db")
+        self.compression_model_dir = os.path.join(UNIFAAS_HOME, "compression_model")
+        self.output_predictor_dir = os.path.join(self.compression_model_dir, "output_predictor")
+        self.execution_time_predictor_dir = os.path.join(self.compression_model_dir, "execution_time_predictor")
+
+        self.add_root_logger_handler()
+        self.output_model_map = {}  # {"func_name:compress_method" : model}
+        self.execution_model_map = {}
+        #self._init_model()
+  
+        logger.info(f"[CompressionPredictor] Start CompressionPredictor with dir {self.compression_model_dir}")
+
+    def add_root_logger_handler(self):
+        root_logger = logging.getLogger()
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.CRITICAL)
+        root_logger.addHandler(handler)
+
+    def _get_executor_info(self, ep):
+        if ep not in self.executors:
+            return None
+        if ep in self.status_poller.resource_status:
+            return self.status_poller.get_resource_status_by_label(ep)
+        return None
+
+    def _init_model(self):
+        if not os.path.exists(self.compression_model_dir):
+            os.mkdir(path=self.compression_model_dir)
+
+        if not os.path.exists(self.output_predictor_dir):
+            os.mkdir(path=self.output_predictor_dir)
+
+        if not os.path.exists(self.execution_time_predictor_dir):
+            os.mkdir(path=self.execution_time_predictor_dir)
+        
+        func_to_train = self._check_to_train()
+        self.train_model(func_to_train)
+
+        self._load_existing_model()
+
+    def predict_output_size(self, func_name, method, size_before_compress):
+        if func_name not in self.output_model_map.keys():
+            return None
+
+        if method not in self.output_model_map[func_name]:
+            return None
+
+        model = self.output_model_map[func_name][method]
+
+        # using linear regressor
+        X = np.array([size_before_compress])
+        poly_features = PolynomialFeatures(degree=1)
+        X_poly = poly_features.fit_transform(X.reshape(1, -1))
+        Y = model.predict(X_poly)
+        return max(0, Y[0])
+    
+
+    def predict_compress_execution_time(self, func_name, method, input_size, endpoint, type):
+        if func_name not in self.execution_model_map.keys():
+            return None
+
+        if method not in self.execution_model_map[func_name]:
+            return None
+
+        model = self.execution_model_map[func_name][method][type]
+        info = self._get_executor_info(endpoint)
+
+    
+        if info is None:
+            return None
+        
+        X = np.array([input_size, info["cpu_freq"]])
+        poly_features = PolynomialFeatures(degree=2)
+        X_poly = poly_features.fit_transform(X.reshape(1, -1))
+        Y = model.predict(X_poly)
+        return max(0, Y[0])
+
+
+    def _check_to_train(self):
+        func_pairs = self.recorder.get_all_distinct_key()
+        output_model_file_list = os.listdir(self.output_predictor_dir)
+        func_to_train = []
+        for pair in func_pairs:
+            # if f"{pair[0]}-{pair[1]}.pkl" not in output_model_file_list:
+            #     func_to_train.append(pair)
+            # TODO: 仅供测试 全部重新训练
+            func_to_train.append(pair)
+        return func_to_train
+
+    def _load_existing_model(self):
+        # Load execution models
+        execution_model_file_list = os.listdir(self.execution_time_predictor_dir)
+        for tmp_file in execution_model_file_list:
+            func_name, compress_method, model_type = tmp_file[:-len(".pkl")].rsplit('-', 2)
+            with open(os.path.join(self.execution_time_predictor_dir, tmp_file), "rb") as f:
+                if func_name not in self.execution_model_map:
+                    self.execution_model_map[func_name] = {}
+                if compress_method not in  self.execution_model_map[func_name]:
+                    self.execution_model_map[func_name][compress_method] = {}
+                self.execution_model_map[func_name][compress_method][model_type] = pickle.load(f)
+        
+        # Load output models
+        output_model_file_list = os.listdir(self.output_predictor_dir)
+        for tmp_file in output_model_file_list:
+            func_name, compress_method = tmp_file[:-len(".pkl")].rsplit('-', 1)
+            with open(os.path.join(self.output_predictor_dir, tmp_file), "rb") as f:
+                if func_name not in self.output_model_map:
+                    self.output_model_map[func_name] = {}
+                self.output_model_map[func_name][compress_method] = pickle.load(f)
+
+        logger.info(f"[CompressionPredictor] Loaded existing models from directories.")
+
+    def train_model(self, func_to_train):
+        for func in func_to_train:
+            if func[0] not in self.output_model_map: # func_name
+                self.output_model_map[func[0]] = {}       
+                self.execution_model_map[func[0]] = {}
+                     
+            self.output_model_map[func[0]][func[1]] = self._train_output_model_for_func(func[0], func[1])
+            self.execution_model_map[func[0]][func[1]] = {}
+            self.execution_model_map[func[0]][func[1]]['compress'] = self._train_execution_model_for_func(func[0], func[1],'compress')
+            self.execution_model_map[func[0]][func[1]]['decompress'] = self._train_execution_model_for_func(func[0], func[1],'decompress')
+
+
+        
+
+    def _train_output_model_for_func(self, func_name, compress_method):
+        # 使用线性回归
+        record_items = self.recorder.get_compress_info(func_name, compress_method, 'compress')
+        X_list = [[item[5]] for item in record_items] # size before compress
+        Y_list = [item[6] for item in record_items] # size after compress
+        X = np.array(X_list)
+        Y = np.array(Y_list)
+
+        poly_features = PolynomialFeatures(degree=1)
+        X_poly = poly_features.fit_transform(X)
+        regressor = LinearRegression()
+        regressor.fit(X_poly, Y)
+
+        with open(
+            os.path.join(self.output_predictor_dir, f"{func_name}-{compress_method}.pkl"), "wb"
+        ) as f:
+            logger.info(
+                f"[CompressionOutputPredictor] Training finished. Save model to {f}"
+            )
+            pickle.dump(regressor, f)
+        return regressor
+    
+    def _train_execution_model_for_func(self, func_name, compress_method, type):
+        record_items = self.recorder.get_compress_info(func_name, compress_method, type)
+        X_list = [[item[5], item[9]] for item in record_items]
+        Y_list = [item[10] for item in record_items]
+        X = np.array(X_list)
+        Y = np.array(Y_list)
+        
+        poly_features = PolynomialFeatures(degree=2)
+        X_poly = poly_features.fit_transform(X)
+        regressor = LinearRegression()
+        regressor.fit(X_poly, Y)
+
+        with open(
+            os.path.join(self.execution_time_predictor_dir, f"{func_name}-{compress_method}-{type}.pkl"), "wb"
+        ) as f:
+            logger.info(
+                f"[CompressionExecutionPredictor] Training finished. Save model to {f}"
+            )
+            pickle.dump(regressor, f)
+        return regressor
+
+    

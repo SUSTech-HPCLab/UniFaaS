@@ -4,6 +4,7 @@ from unifaas.dataflow.helper.execution_recorder import UNIFAAS_HOME
 from queue import PriorityQueue
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.executors.funcx.executor import FuncXExecutor
+from unifaas.dataflow.helper.data_transfer_client import SFTPClient
 from funcx.sdk.file import RemoteFile, RemoteDirectory
 import time
 import re
@@ -37,7 +38,10 @@ class TransferPredictor:
             self.executors = executors
             self.network_info = {}
             self.probe_dic = {}
-            self.dtc = dtc
+            if dtc is None:
+                self.dtc = SFTPClient(self.executors)
+            else:
+                self.dtc = dtc
             self._init_bandwith_info(bandwith_info)
             self.resource_poller = ResourceStatusPoller(self.executors)
             self.executor_address_info = {}
@@ -93,13 +97,13 @@ class TransferPredictor:
                 for dest_exe in funcx_executor:
                     for prob_file in prob_list:
                         gengerated_file.append(prob_file.file_name)
-                        transfer_task = self.dtc.transfer(prob_file, dest_exe)
+                        transfer_task = self.dtc.transfer(prob_file, dest_exe) # type: ignore
                         transfer_tasks_for_prob.append(transfer_task["task_id"])
 
             # thirdly, wait for all transfer tasks to finish
             while len(transfer_tasks_for_prob) > 0:
                 for task_id in transfer_tasks_for_prob:
-                    if self.dtc.transfer_tasks[task_id]["status"] == "SUCCEEDED":
+                    if self.dtc.transfer_tasks[task_id]["status"] == "SUCCEEDED": # type: ignore
                         transfer_tasks_for_prob.remove(task_id)
                 time.sleep(1)
 

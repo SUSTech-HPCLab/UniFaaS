@@ -50,6 +50,9 @@ class TaskStatusTracker:
             )
 
     def update_when_submit_to_dfk(self, task_record):
+        if task_record["compress_option"][1] or task_record["compress_option"][2]:
+            return
+        
         ready = self.check_if_ready(task_record)
         if ready:
             self.ready_tasks += 1
@@ -57,6 +60,9 @@ class TaskStatusTracker:
             self.not_ready_tasks += 1
 
     def update_when_task_submit_to_executor(self, task_record):
+        if task_record["compress_option"][1] or task_record["compress_option"][2]:
+            return
+
         if "original_task" in task_record:
             return
         else:
@@ -64,13 +70,19 @@ class TaskStatusTracker:
             self.ready_tasks -= 1
 
     def update_when_task_done(self, task_record):
+        if task_record["compress_option"][1] is None and  task_record["compress_option"][2] is None:
+            self.running_tasks -= 1
+            self.executed_tasks += 1
+
         if "original_task" in task_record:
             return
-        self.running_tasks -= 1
-        self.executed_tasks += 1
+      
         child_tasks = graphHelper.raw_graph[task_record["app_fu"]]
         for child in child_tasks:
             child_record = child.task_def
+            if child_record["compress_option"][1] or child_record["compress_option"][2]:
+                continue
+
             if self.dep_count(child_record) == 1:
                 self.ready_tasks += 1
                 self.not_ready_tasks -= 1

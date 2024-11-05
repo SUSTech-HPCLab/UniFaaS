@@ -36,9 +36,6 @@ class DataTransferManager(object):
         if DataTransferManager.__first_init is False:
             self.entry_task_queue = Queue()
             self.executors = executors
-            self.dummy_endpoint_info_dir = os.path.join(
-                UNIFAAS_HOME, "dummy_endpoint_info"
-            )
             self.label_to_executor = {}
             self.executor_to_globus = {}
             self.executor_to_data_path = {}
@@ -446,11 +443,6 @@ class DataTransferManager(object):
             self.raw_graph[dep].append(task["app_fu"])
         return
 
-    def get_child_task(self, task_record):
-        appfu = task_record["app_fu"]
-        child_task_fu_list = self.raw_graph[appfu]
-        child_task_list = [self.fu_to_task[fu] for fu in child_task_fu_list]
-        return child_task_list
 
     def _handle_not_scheduling_task(self, kill_event):
         """

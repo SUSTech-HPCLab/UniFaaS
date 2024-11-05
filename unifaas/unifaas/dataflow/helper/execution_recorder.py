@@ -312,14 +312,15 @@ class CompressionRecorder(ExecutionRecorder):
         
         self.record_format = [
             "func_name",
-            "input_size",
-            "output_name",
-            "output_size",
-            "compression_time",
-            "decompression_time",
-            "compressed_size",
-            "compress_ep",
-            "decompress_ep",
+            "type",
+            "method",
+            "execution_ep",
+            "size_before",
+            "size_after",
+            "cpu_percent",
+            "cpu_cores",
+            "cpu_freqs_max",
+            "execution_time"
         ]
         self.database = os.path.join(self._RECORD_DIR, "compression_history.db")
         self.table_name = "compression_history"
@@ -341,7 +342,7 @@ class CompressionRecorder(ExecutionRecorder):
         record_format = self.record_format
         sql = f"CREATE TABLE {self.table_name} (ID INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \n"
         for i, col in enumerate(record_format):
-            if col in ["func_name", "output_name", "compress_ep", "decompress_ep"]:
+            if col in ["func_name", "type", "method", "execution_ep"]:
                 sql += f"{col} TEXT NOT NULL"
             else:
                 sql += f"{col} NUMERIC NOT NULL"
@@ -367,17 +368,7 @@ class CompressionRecorder(ExecutionRecorder):
         info,
     ):
         try:
-            info_list = [
-                info['func_name'],
-                info['input_size'],
-                info['output_name'],
-                info['output_size'],
-                info['compression_time'],
-                info['decompression_time'],
-                info['compressed_size'],
-                info['compress_ep'],
-                info['decompress_ep'],
-            ]
+            info_list = [info.get(s) for s in self.record_format]
             sql, params = self._insert_sql(info_list)
             self.sql_queue.put((sql, params))
         except Exception as e:
@@ -411,3 +402,20 @@ class CompressionRecorder(ExecutionRecorder):
                 )
             time.sleep(5)
 
+
+    def get_all_distinct_key(self):
+        conn = sqlite3.connect(self.database, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = f"SELECT func_name,method FROM {self.table_name} GROUP BY func_name,method"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        func_pairs = [r for r in result ]
+        return func_pairs
+
+    def get_compress_info(self, func, method, type):
+        conn = sqlite3.connect(self.database, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = f"SELECT * FROM {self.table_name} WHERE func_name = '{func}' and method = '{method}' and type = '{type}' "
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return result

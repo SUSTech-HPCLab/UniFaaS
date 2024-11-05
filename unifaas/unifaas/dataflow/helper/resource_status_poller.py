@@ -189,6 +189,9 @@ class ResourceStatusPoller(object):
         )
 
     def update_when_launch_task(self, executor, task_record=None):
+        if task_record is not None : 
+            if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None:
+                return
         self.real_time_status[executor]["launch_queue_task_num"] -= 1
         if (
             self.real_time_status[executor]["pending_tasks"] > 0
