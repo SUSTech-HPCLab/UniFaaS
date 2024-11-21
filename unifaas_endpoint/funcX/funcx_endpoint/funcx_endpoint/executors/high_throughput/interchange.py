@@ -310,6 +310,7 @@ class Interchange:
         logger.info("Connected to forwarder")
 
         self.pending_task_queue = {}
+        self.priority_task_queue = {}
         self.containers = {}
         self.total_pending_task_count = 0
         if funcx_service_address:
@@ -715,9 +716,12 @@ class Interchange:
                     self.pending_task_queue[local_container] = queue.Queue(
                         maxsize=10 ** 6
                     )
+                    self.priority_task_queue[local_container] = queue.Queue(
+                        maxsize=10 ** 6
+                    )
                 # Check if data transfer is needed
                 data_url = msg.data_url
-                if data_url != "" and data_url != "None" and not data_url.startswith("dummy"):
+                if data_url != "" and data_url != "None" and not data_url.startswith("dummy") and data_url != "priority_task":
                     pass
                 # We pass the raw message along
                 else:
@@ -725,14 +729,29 @@ class Interchange:
                         logger.info(f"[TASK_PULL_THREAD] got a scale command from client {data_url}")
                         self.parse_command_from_data_url(data_url)
 
-                    self.pending_task_queue[local_container].put(
+                    if data_url == "priority_task":
+                        logger.info(f"send priority task to special task queue {msg.task_id}")
+                        self.priority_task_queue[local_container].put(
                         {
                             "task_id": msg.task_id,
                             "container_id": msg.container_id,
                             "local_container": local_container,
                             "raw_buffer": raw_msg,
+                            "data_url": data_url,
                         }
-                    )
+                        )
+                    else:
+                        self.pending_task_queue[local_container].put(
+                            {
+                                "task_id": msg.task_id,
+                                "container_id": msg.container_id,
+                                "local_container": local_container,
+                                "raw_buffer": raw_msg,
+                                "data_url": data_url,
+                            }
+                        )
+
+
                 self.total_pending_task_count += 1
                 self.task_status_deltas[msg.task_id] = TaskStatusCode.WAITING_FOR_NODES
                 logger.debug(
@@ -1132,6 +1151,7 @@ class Interchange:
                 task_dispatch, dispatched_task = naive_interchange_task_dispatch(
                     interesting_managers,
                     self.pending_task_queue,
+                    self.priority_task_queue,
                     self._ready_manager_queue,
                     scheduler_mode=self.scheduler_mode,
                     cold_routing=True,
@@ -1142,6 +1162,7 @@ class Interchange:
                 task_dispatch, dispatched_task = naive_interchange_task_dispatch(
                     interesting_managers,
                     self.pending_task_queue,
+                    self.priority_task_queue,
                     self._ready_manager_queue,
                     scheduler_mode=self.scheduler_mode,
                     cold_routing=False,

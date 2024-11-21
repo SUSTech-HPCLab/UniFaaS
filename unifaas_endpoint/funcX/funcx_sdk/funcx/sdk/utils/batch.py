@@ -58,6 +58,9 @@ class Batch:
 
         if dummy and cmd_config is not None:
             data_url = f"dummy=1|out_manager={cmd_config['out_manager']}|in_manager={cmd_config['in_manager']}"
+
+        if cmd_config is not None and 'priority_task' in cmd_config:
+            data_url = "priority_task"
         
 
         # data_url covers the recursive attribute

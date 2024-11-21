@@ -10,6 +10,7 @@ logger.info("Interchange task dispatch started")
 def naive_interchange_task_dispatch(
     interesting_managers,
     pending_task_queue,
+    priority_task_queue,
     ready_manager_queue,
     scheduler_mode="hard",
     cold_routing=False,
@@ -27,6 +28,7 @@ def naive_interchange_task_dispatch(
             ready_manager_queue,
             scheduler_mode="hard",
             online_scale_in_num=online_scale_in_num,
+            priority_task_queue=priority_task_queue,
         )
 
     elif scheduler_mode == "soft":
@@ -54,6 +56,7 @@ def dispatch(
     task_dispatch=None,
     dispatched_tasks=0,
     online_scale_in_num=0,
+    priority_task_queue=None,
 ):
     """
     This is the core task dispatching algorithm for interchange.
@@ -79,7 +82,7 @@ def dispatch(
             if real_capacity > 0 and ready_manager_queue[manager]["active"]:
                 if scheduler_mode == "hard":
                     tasks, tids = get_tasks_hard(
-                        pending_task_queue, ready_manager_queue[manager], real_capacity
+                        pending_task_queue, priority_task_queue, ready_manager_queue[manager], real_capacity
                     )
                 else:
                     tasks, tids = get_tasks_soft(
@@ -130,7 +133,7 @@ def dispatch(
     return task_dispatch, dispatched_tasks
 
 
-def get_tasks_hard(pending_task_queue, manager_ads, real_capacity):
+def get_tasks_hard(pending_task_queue, priority_task_queue,manager_ads, real_capacity):
     tasks = []
     tids = collections.defaultdict(set)
     task_type = manager_ads["worker_type"]
@@ -148,7 +151,10 @@ def get_tasks_hard(pending_task_queue, manager_ads, real_capacity):
     if task_type in manager_ads["free_capacity"]["free"]:
         while manager_ads["free_capacity"]["free"][task_type] > 0 and real_capacity > 0:
             try:
-                x = pending_task_queue[task_type].get(block=False)
+                if priority_task_queue[task_type].qsize() > 0:
+                    x = priority_task_queue[task_type].get(block=False)
+                else:
+                    x = pending_task_queue[task_type].get(block=False)
             except queue.Empty:
                 break
             else:
@@ -163,7 +169,10 @@ def get_tasks_hard(pending_task_queue, manager_ads, real_capacity):
     logger.debug("Second round of task fetching in hard mode")
     while manager_ads["free_capacity"]["free"]["unused"] > 0 and real_capacity > 0:
         try:
-            x = pending_task_queue[task_type].get(block=False)
+            if priority_task_queue[task_type].qsize() > 0:
+                x = priority_task_queue[task_type].get(block=False)
+            else:
+                x = pending_task_queue[task_type].get(block=False)
         except queue.Empty:
             break
         else:
