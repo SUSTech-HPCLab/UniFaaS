@@ -56,7 +56,7 @@ class ExecutionPredictor:
             f"[ExecutionPredictor] Start ExecutionPredictor with dir{self.record_dir}"
         )
 
-        # self._special_training()
+       # self._special_training()
 
     def add_root_logger_handler(self):
         """
@@ -165,7 +165,8 @@ class ExecutionPredictor:
         # If there is no model file, but there is a record file, train a model
         all_distinct_func = self.recorder.get_all_distinct_func()
         func_to_train = self._check_to_train()
-        self.train(func_to_train)
+       #self.train(func_to_train)
+
         # Load existing model
         self._load_existing_model()
 
@@ -182,6 +183,16 @@ class ExecutionPredictor:
                 if "worker_performance" in executor_info[exe_key]:
                     if len(executor_info[exe_key]["worker_performance"]) > 0:
                         cpu_str = executor_info[exe_key]["worker_performance"][0]
+
+                # TODO: 需要被删除，仅作debug用
+                if exe_key == 'lab02':
+                    cpu_str = '104@3400'
+                elif exe_key == 'cse_cluster':
+                    cpu_str = '192@3900'
+                elif exe_key == 'taiyi':
+                    cpu_str = '40@3700'
+                elif exe_key == 'qiming':
+                    cpu_str = '24@3500'
 
                 if cpu_str:
                     if (
@@ -206,8 +217,10 @@ class ExecutionPredictor:
                 predict_execution[exe_key] = max(0, Y[0] + latency)
         if func_name in self.output_model_map.keys():
             X = np.array([input_size])
+            poly_features = PolynomialFeatures(degree=2)
+            X_poly = poly_features.fit_transform(X.reshape(1, -1))
             model = self.output_model_map[func_name]
-            Y = model.predict(X.reshape(1, -1))
+            Y = model.predict(X_poly)
             predict_output = Y[0]
 
         task_record["predict_execution"] = predict_execution
@@ -261,7 +274,7 @@ class ExecutionPredictor:
         for func_name in functions_list:
             if f"{func_name}.pkl" not in model_file_list:
                 func_to_train.append(func_name)
-        return func_to_train
+        return functions_list
 
     def _load_existing_model(self):
         model_file_list = os.listdir(self.execution_model_dir)
@@ -320,8 +333,16 @@ class ExecutionPredictor:
         Y_list = [item[9] for item in record_items]
         X = np.array(X_list)
         Y = np.array(Y_list)
-        regressor = RandomForestRegressor(n_estimators=200, random_state=0)
-        regressor.fit(X, Y)
+
+        # regressor = RandomForestRegressor(n_estimators=200, random_state=0)
+        # regressor.fit(X, Y)
+
+        # ==== Linear Regression =====
+        poly_features = PolynomialFeatures(degree=2)
+        X_poly = poly_features.fit_transform(X)
+        regressor = LinearRegression()
+        regressor.fit(X_poly, Y)
+
         with open(os.path.join(self.output_model_dir, f"{func_name}.pkl"), "wb") as f:
             logger.info(
                 f"[ExecutionPredictor] Training output model. Save model to {self.predict_model_dir}"
@@ -349,11 +370,14 @@ class CompressionPredictor:
         self.compression_model_dir = os.path.join(UNIFAAS_HOME, "compression_model")
         self.output_predictor_dir = os.path.join(self.compression_model_dir, "output_predictor")
         self.execution_time_predictor_dir = os.path.join(self.compression_model_dir, "execution_time_predictor")
+        self.special_execution_time_model_dir = os.path.join(self.compression_model_dir, "special_execution_time_predictor")
 
         self.add_root_logger_handler()
         self.output_model_map = {}  # {"func_name:compress_method" : model}
         self.execution_model_map = {}
-        #self._init_model()
+        self.special_model_map = {}
+        self._init_model()
+
   
         logger.info(f"[CompressionPredictor] Start CompressionPredictor with dir {self.compression_model_dir}")
 
@@ -362,6 +386,9 @@ class CompressionPredictor:
         handler = logging.StreamHandler()
         handler.setLevel(logging.CRITICAL)
         root_logger.addHandler(handler)
+
+
+    
 
     def _get_executor_info(self, ep):
         if ep not in self.executors:
@@ -379,9 +406,14 @@ class CompressionPredictor:
 
         if not os.path.exists(self.execution_time_predictor_dir):
             os.mkdir(path=self.execution_time_predictor_dir)
+
+        if not os.path.exists(self.special_execution_time_model_dir):
+            os.mkdir(path=self.special_execution_time_model_dir)
+
+        # self._special_training()
         
-        func_to_train = self._check_to_train()
-        self.train_model(func_to_train)
+        # func_to_train = self._check_to_train()
+        # self.train_model(func_to_train)
 
         self._load_existing_model()
 
@@ -396,7 +428,7 @@ class CompressionPredictor:
 
         # using linear regressor
         X = np.array([size_before_compress])
-        poly_features = PolynomialFeatures(degree=1)
+        poly_features = PolynomialFeatures(degree=2)
         X_poly = poly_features.fit_transform(X.reshape(1, -1))
         Y = model.predict(X_poly)
         return max(0, Y[0])
@@ -411,10 +443,28 @@ class CompressionPredictor:
 
         model = self.execution_model_map[func_name][method][type]
         info = self._get_executor_info(endpoint)
-
-    
         if info is None:
             return None
+        
+        if "worker_performance" in info:
+            if len(info["worker_performance"]) > 0:
+                cpu_str = info["worker_performance"][0]
+
+                if cpu_str:
+                        if (
+                            cpu_str in self.special_model_map
+                            and func_name in self.special_model_map[cpu_str]
+                            and method in  self.special_model_map[cpu_str][func_name]
+                            and type in self.special_model_map[cpu_str][func_name][method]
+                        ):
+                            model = self.special_model_map[cpu_str][func_name][method][type]
+                            X = np.array([input_size])
+                            poly_features = PolynomialFeatures(degree=2)
+                            X_poly = poly_features.fit_transform(X.reshape(1, -1))
+                            Y = model.predict(X_poly)
+                            return max(0, Y[0])
+
+
         
         X = np.array([input_size, info["cpu_freq"]])
         poly_features = PolynomialFeatures(degree=2)
@@ -455,31 +505,49 @@ class CompressionPredictor:
                     self.output_model_map[func_name] = {}
                 self.output_model_map[func_name][compress_method] = pickle.load(f)
 
+        special_model_file_list = os.listdir(self.special_execution_time_model_dir)
+        for tmp_file in special_model_file_list:
+            cpu_str ,func_name, compress_method, model_type = tmp_file[:-len(".pkl")].rsplit('-', 3)
+            with open(os.path.join(self.special_execution_time_model_dir, tmp_file), "rb") as f:
+                if cpu_str not in self.special_model_map:
+                    self.special_model_map[cpu_str] = {}
+                if func_name not in self.special_model_map[cpu_str]:
+                    self.special_model_map[cpu_str][func_name] = {}
+                if compress_method not in self.special_model_map[cpu_str][func_name]:
+                    self.special_model_map[cpu_str][func_name][compress_method] = {}
+                self.special_model_map[cpu_str][func_name][compress_method][model_type] = pickle.load(f)
+
         logger.info(f"[CompressionPredictor] Loaded existing models from directories.")
 
     def train_model(self, func_to_train):
         for func in func_to_train:
-            if func[0] not in self.output_model_map: # func_name
-                self.output_model_map[func[0]] = {}       
-                self.execution_model_map[func[0]] = {}
-                     
-            self.output_model_map[func[0]][func[1]] = self._train_output_model_for_func(func[0], func[1])
-            self.execution_model_map[func[0]][func[1]] = {}
-            self.execution_model_map[func[0]][func[1]]['compress'] = self._train_execution_model_for_func(func[0], func[1],'compress')
-            self.execution_model_map[func[0]][func[1]]['decompress'] = self._train_execution_model_for_func(func[0], func[1],'decompress')
-
+            output_model =  self._train_output_model_for_func(func[0], func[1])
+            compress_model = self._train_execution_model_for_func(func[0], func[1],'compress')
+            decompress_model = self._train_execution_model_for_func(func[0], func[1],'decompress')
+            if output_model and compress_model and decompress_model:
+                if func[0] not in self.output_model_map: # func_name
+                    self.output_model_map[func[0]] = {}       
+                    self.execution_model_map[func[0]] = {}
+                self.output_model_map[func[0]][func[1]] = output_model
+                self.execution_model_map[func[0]][func[1]] = {}
+                self.execution_model_map[func[0]][func[1]]['compress'] = compress_model
+                self.execution_model_map[func[0]][func[1]]['decompress'] = decompress_model
 
         
 
     def _train_output_model_for_func(self, func_name, compress_method):
         # 使用线性回归
         record_items = self.recorder.get_compress_info(func_name, compress_method, 'compress')
+        if len(record_items) == 0:
+            return None
+
+
         X_list = [[item[5]] for item in record_items] # size before compress
         Y_list = [item[6] for item in record_items] # size after compress
         X = np.array(X_list)
         Y = np.array(Y_list)
 
-        poly_features = PolynomialFeatures(degree=1)
+        poly_features = PolynomialFeatures(degree=2)
         X_poly = poly_features.fit_transform(X)
         regressor = LinearRegression()
         regressor.fit(X_poly, Y)
@@ -495,6 +563,9 @@ class CompressionPredictor:
     
     def _train_execution_model_for_func(self, func_name, compress_method, type):
         record_items = self.recorder.get_compress_info(func_name, compress_method, type)
+        if len(record_items) == 0:
+            return None
+        
         X_list = [[item[5], item[9]] for item in record_items]
         Y_list = [item[10] for item in record_items]
         X = np.array(X_list)
@@ -513,5 +584,53 @@ class CompressionPredictor:
             )
             pickle.dump(regressor, f)
         return regressor
+    
+
+    def _special_train_execution_model_for_func(self, func_name, compress_method, type, cores, freq):
+        record_items = self.recorder.get_compress_info_with_cpu_str(func_name, compress_method, type, cores, freq)
+        X_list = [[item[5]] for item in record_items]
+        Y_list = [item[10] for item in record_items]
+        if len(X_list) <= 3 or len(Y_list) <= 3 or len(X_list) != len(Y_list):
+            return None
+
+        X = np.array(X_list)
+        Y = np.array(Y_list)
+        
+        poly_features = PolynomialFeatures(degree=2)
+        X_poly = poly_features.fit_transform(X)
+        regressor = LinearRegression()
+        regressor.fit(X_poly, Y)
+
+        with open(
+            os.path.join(self.special_execution_time_model_dir, f"{cores}@{freq}-{func_name}-{compress_method}-{type}.pkl"), "wb"
+        ) as f:
+            logger.info(
+                f"[CompressionExecutionPredictor] Training finished. Save model to {f}"
+            )
+            pickle.dump(regressor, f)
+        return regressor
+    
+    def _special_training(self):
+        data = self.recorder.select_record_for_cpu_combination()
+        func_pairs = self.recorder.get_all_distinct_key()
+        for cpu_comb in data:
+            cpu_comb_str = f"{cpu_comb[0]}@{cpu_comb[1]}"
+            if cpu_comb_str not in self.special_model_map:
+                self.special_model_map[cpu_comb_str] = {}
+
+            for func in func_pairs:
+
+                compress_model = self._special_train_execution_model_for_func(func[0], func[1],'compress', cpu_comb[0], cpu_comb[1])
+                decompress_model = self._special_train_execution_model_for_func(func[0], func[1],'decompress',cpu_comb[0], cpu_comb[1])
+
+                if compress_model and decompress_model:
+                    if func[0] not in self.special_model_map[cpu_comb_str]: # func_name
+                        self.special_model_map[cpu_comb_str][func[0]] = {}       
+                        
+                        
+                    self.special_model_map[cpu_comb_str][func[0]][func[1]] = {}
+                    self.special_model_map[cpu_comb_str][func[0]][func[1]]['compress'] = compress_model
+                    self.special_model_map[cpu_comb_str][func[0]][func[1]]['decompress'] = decompress_model
+
 
     

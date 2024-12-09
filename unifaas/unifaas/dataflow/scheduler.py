@@ -33,6 +33,7 @@ class Scheduler:
         scheduling_strategy=None,
         execution_recorder=None,
         compress_recorder=None,
+        task_tracker=None,
         workflow_name="default",
         duplicated_tasks=None,
         enable_duplicate=False,
@@ -57,6 +58,7 @@ class Scheduler:
         self.resources = self.resource_poller.get_resource_status()
         self.duplicated_tasks = duplicated_tasks
         self.data_manager = DataTransferManager(self.executors)
+        self.task_tracker = task_tracker
         if self.scheduling_strategy == "AUTO":
             self.auto_scheduling = AutoScheduling(
                 self.resource_poller,
@@ -118,6 +120,7 @@ class Scheduler:
                 self.compress_predictor,
                 self.data_manager,
                 "HEFT",
+                self.task_tracker,
             )
 
     def put_important_task_into_duplicated_queue(self, task_record):
@@ -462,7 +465,8 @@ class Scheduler:
                 dep_task = dep.task_def
                 if dep_task['compress_option'][2] is not None and (dep_task["status"] == States.scheduling or dep_task["status"] == States.dynamic_adjust):
                     dep_task['executor'] = task_record['executor']
-                    self.resource_poller.update_status_when_submit_one_task(dep_task['executor'])
+                    # compress和decompress任务不参与worker数量统计
+                    self.resource_poller.update_status_when_submit_one_task(dep_task['executor'], dep_task)
                     dep_task["submitted_to_poller"] = True
                     dep_task["status"] = States.data_managing
                     self.data_manager.group_transfer(dep_task)
@@ -473,7 +477,7 @@ class Scheduler:
         while not self.data_compress_task_que.empty():
             task_record = self.data_compress_task_que.get()
             target_ep = task_record['executor']  # executor is assigned before putting into the queue 
-            self.resource_poller.update_status_when_submit_one_task(target_ep)
+            self.resource_poller.update_status_when_submit_one_task(target_ep, task_record)
             task_record["submitted_to_poller"] = True
             task_record["status"] = States.data_managing
             self.data_manager.group_transfer(task_record)
@@ -487,7 +491,9 @@ class Scheduler:
                 if isinstance(dep, Future) and not dep.done():
                     all_done = False
             if all_done:
-                self.resource_poller.update_status_when_submit_one_task(task_record['executor'])
+                # targert task已经被提交过了，这里不需要再update任务了
+                # self.resource_poller.update_status_when_submit_one_task(task_record['executor'], task_record)
+
                 task_record["submitted_to_poller"] = True
                 task_record["status"] = States.data_managing
                 self.data_manager.group_transfer(task_record)
@@ -526,16 +532,31 @@ class Scheduler:
                     if not task_record["never_change"]:
                         task_record["executor"] = target_ep
                         
+                        # TODO: debug
+                        # task_record["executor"] = "cse_cluster"
+                        # target_ep = "cse_cluster"
+
+
+                        # # TODO： 这里只是为了测试！！！
+                        # if task_record['func_name'] == 'file_task':
+                        #     task_record["executor"] = "lab02"
+                        # elif task_record['func_name'] == 'wf_entry':
+                        #     task_record["executor"] = "EVA"
+                        
+                        
                     if task_record['compress_option'][3] is not None:
                         # do not transfer task until deps finished
                         self._DATA_submit_compression_target_task(task_record)
+                        
+                        # 在decompress任务执行之前就更新worker记录（decompress不占用worker 所以需要提前占用worker）
+                        self.resource_poller.update_status_when_submit_one_task(task_record['executor'], task_record)
                         task_record["submitted_to_poller"] = True
                         task_record["status"] = States.data_managing
                         idle_workers[i] -= 1
                         break
 
 
-                    self.resource_poller.update_status_when_submit_one_task(target_ep)
+                    self.resource_poller.update_status_when_submit_one_task(target_ep, task_record)
                     task_record["submitted_to_poller"] = True
                     task_record["status"] = States.data_managing
                     self.data_manager.group_transfer(task_record)
@@ -623,7 +644,7 @@ class Scheduler:
                 if not task_record["never_change"]:
                     task_record["executor"] = traget_ep
                 final_ep = task_record["executor"]
-                self.resource_poller.update_status_when_submit_one_task(final_ep)
+                self.resource_poller.update_status_when_submit_one_task(final_ep, task_record)
                 task_record["submitted_to_poller"] = True
                 task_record["status"] = States.data_managing
                 self.data_manager.group_transfer(task_record)
@@ -632,7 +653,7 @@ class Scheduler:
                 sum_idle_workers -= 1
 
     def submit_duplicated_task(self, task_record):
-        self.resource_poller.update_status_when_submit_one_task(task_record["executor"])
+        self.resource_poller.update_status_when_submit_one_task(task_record["executor"], task_record)
         task_record["submitted_to_poller"] = True
         task_record["status"] = States.data_managing
         self.data_manager.group_transfer(task_record)
@@ -987,18 +1008,15 @@ class Scheduler:
                     continue
                 elif isinstance(dep, Future) and not dep.done():
                     dep_task = dep.task_def
-                    exp_logger.info(f"checking dep id {dep_task['id']} compress_option: {dep_task['compress_option']}   dep'dep {dep_task['depends'][0].task_def['id']}" )
                     if dep_task['compress_option'][2] is not None and dep_task['depends'][0].done():
                         continue
                     else:
-                        exp_logger.info(f"checking error dep {dep_task['id']}|{dep_task['func_name']} for real target record {task_record['id']}|{task_record['func_name']}")
                         all_done = False
                         break
         else:
             for dep in task_record["depends"]:
                 if isinstance(dep, Future) and not dep.done():
                     dep_task = dep.task_def
-                    exp_logger.info(f"checking error dep {dep_task['id']}|{dep_task['func_name']} for real target record {task_record['id']}|{task_record['func_name']}")
                     all_done = False
                     break
         return all_done
@@ -1066,7 +1084,7 @@ class Scheduler:
         ):
             if self.dynamic_adjust_strategy == "GREEDY" and self.scheduling_strategy == "DHEFT":
                 #DHEFT的压缩目前只支持全自动形式，不能手动制定compressor
-                if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None:
+                if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None or 'special_transfer_task' in task_record:
                     # DHEFT 处理压缩的逻辑与DATA/制定compressor的逻辑不通
                     return
 
@@ -1089,19 +1107,19 @@ class Scheduler:
                                 self.ep_selection.put_task_record(target_task)
                             continue
                         else:
+                            #TODO: 此处变为 dheft_prepare_compress status
                             self.ep_selection.put_task_record(child)
+                            self.task_tracker.dheft_update_when_dep_finished()
         
                     else:
                         succ = self._DATA_put_compress_task_to_que(child)
                         #decompress task will be handled later
                         if child['compress_option'][2] is not None:
-                            exp_logger.info(f"in checking decompress task {child}")
 
                             target_app = graphHelper.decompress_to_target_tbl[child['app_fu']]
                             target_task= target_app.task_def
                             is_target_dep_done = self.check_all_deps_finished(target_task)
                             if is_target_dep_done:
-                                exp_logger.info(f"putting decompress task {child}")
                                 self.put_task_to_data_ready_queue(target_task)
 
                             continue

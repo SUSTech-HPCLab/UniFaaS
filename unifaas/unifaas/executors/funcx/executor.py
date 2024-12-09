@@ -220,6 +220,7 @@ class FuncXExecutor(NoStatusHandlingExecutor, RepresentationMixin):
             "func_uuid": func_uuid,
             "args": args,
             "kwargs": kwargs,
+            "func_name": func.__name__,
         }
 
         # Post task to the the outgoing queue
@@ -244,6 +245,11 @@ class FuncXExecutor(NoStatusHandlingExecutor, RepresentationMixin):
         """
         if messages:
             batch = self.fxc.create_batch()
+            priority_batch = self.fxc.create_batch()
+            batch_counter = 0
+            batch_msgs = []
+            priority_counter = 0
+            priority_msgs = []
             num_of_msg = 0
             for msg in messages:
                 # random endpoint selection for v1
@@ -278,13 +284,30 @@ class FuncXExecutor(NoStatusHandlingExecutor, RepresentationMixin):
                         remote_data = None
                     else:
                         remote_data = remote_data_list
-                    batch.add(
-                        *replace_fu_args_tuple,
-                        **kwargs,
-                        endpoint_id=endpoint,
-                        function_id=func_uuid,
-                        remote_data=remote_data,
-                    )
+
+                    if msg["func_name"] == "compress" or msg["func_name"] == "decompress" or msg["func_name"] == "specialized_transfer_task":
+                        priority_batch.add(
+                            *replace_fu_args_tuple,
+                            **kwargs,
+                            endpoint_id=endpoint,
+                            function_id=func_uuid,
+                            remote_data=remote_data,
+                            cmd_config={
+                                "priority_task": True,
+                            }
+                        )
+                        priority_counter += 1  
+                        priority_msgs.append(msg)
+                    else:
+                        batch.add(
+                            *replace_fu_args_tuple,
+                            **kwargs,
+                            endpoint_id=endpoint,
+                            function_id=func_uuid,
+                            remote_data=remote_data,
+                        )
+                        batch_counter += 1
+                        batch_msgs.append(msg)
                     num_of_msg += 1
                     logger.debug(
                         "[TASK_SUBMIT_THREAD] Adding msg {} to funcX batch".format(msg)
@@ -295,10 +318,18 @@ class FuncXExecutor(NoStatusHandlingExecutor, RepresentationMixin):
             logger.info(
                 "[TASK_SUBMIT_THREAD] Adding msg {} to funcX batch".format(num_of_msg)
             )
-            batch_future = self.submit_pool.submit(self.fxc.batch_run, batch)
-            batch_future.add_done_callback(
-                partial(self._batch_run_done, messages=messages)
-            )
+            if priority_counter >= 1:
+                priority_batch_future = self.submit_pool.submit(self.fxc.batch_run, priority_batch)
+                priority_batch_future.add_done_callback(
+                    partial(self._batch_run_done, messages=priority_msgs)
+                )
+            
+            if batch_counter >= 1:
+
+                batch_future = self.submit_pool.submit(self.fxc.batch_run, batch)
+                batch_future.add_done_callback(
+                    partial(self._batch_run_done, messages=batch_msgs)
+                )
 
     def _batch_run_done(self, batch_future, messages):
         """Callback function that is called when a batch of tasks is done"""

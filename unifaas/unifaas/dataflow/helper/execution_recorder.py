@@ -419,3 +419,26 @@ class CompressionRecorder(ExecutionRecorder):
         cursor.execute(sql)
         result = cursor.fetchall()
         return result
+    
+    def get_compress_info_with_cpu_str(self, func, method, type, cores, freq):
+        conn = sqlite3.connect(self.database, check_same_thread=False)
+        cursor = conn.cursor()
+        sql = f"SELECT * FROM {self.table_name} WHERE func_name = '{func}' and method = '{method}' and type = '{type}' and cpu_cores = '{cores}' and cpu_freqs_max = '{freq}' "
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return result
+    
+
+
+    def select_record_for_cpu_combination(self):
+        conn = sqlite3.connect(self.database, check_same_thread=False)
+        cursor = conn.cursor()
+
+
+        cursor.execute(
+            f"SELECT DISTINCT cpu_cores, cpu_freqs_max FROM {self.table_name}"
+        )
+        cpu_combinations = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return cpu_combinations

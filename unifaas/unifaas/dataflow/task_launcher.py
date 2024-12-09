@@ -162,6 +162,9 @@ class TaskLauncher:
                     ):  # tmp
                         min_ep = ep
                         cur_cost = new_cost
+
+                # TODO: 暂时不steal任务       
+                # min_ep = key
                 if min_ep != key:
                     exp_logger.info(
                         f"cur cost {cur_cost_log} higher than new cost {cur_cost}"
@@ -184,7 +187,8 @@ class TaskLauncher:
             self.no_block_launch()
         elif (
             self.scheduling_strategy == "DHEFT"
-        ):
-            self.block_launch()
+        ):  
+            # 临时为了测试 换成no_block_launch
+            self.no_block_launch()
         else:
             raise Exception("Unsupported scheduling strategy")

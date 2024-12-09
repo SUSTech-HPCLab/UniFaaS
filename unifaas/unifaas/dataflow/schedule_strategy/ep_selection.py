@@ -6,7 +6,7 @@ from queue import PriorityQueue
 from queue import Queue
 from unifaas.dataflow.helper.graph_helper import graphHelper
 import threading
-from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR, decompress_func
+from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR, decompress_func, specialized_transfer_task
 
 exp_logger = logging.getLogger("experiment")
 
@@ -34,6 +34,7 @@ class GreedySelection:
         compress_predictor,
         data_manager,
         priority_type,
+        task_tracker
     ):
         self.resource_poller = resource_poller
         self.execution_predictor = execution_predictor
@@ -45,6 +46,7 @@ class GreedySelection:
         self.scheduling_queue = Queue()  # scheduling queue
         self.data_ready_queue = PriorityQueue()  # ic_optimal priority queue
         self.special_decompress_launch_que = Queue()
+        self.task_tracker = task_tracker
 
 
         self._kill_event = threading.Event()
@@ -137,17 +139,31 @@ class GreedySelection:
                 # 开发中 157-161
                 target_ep = self.select_endpoint(task_record, feasible_ep) #don't select endpoint for a compress task
                 if not task_record["never_change"]:
-                        task_record["executor"] = target_ep
-                
+                    task_record["executor"] = target_ep
+
+                # if task_record["func_name"] == "special_task1" or task_record["func_name"] == "special_task2":
+                #     task_record["executor"] = "EVA"
+                # elif task_record["func_name"] == "file_task":
+                #     task_record["executor"] = "cse_cluster"
+                       
                 # TODO：替换成所有需要压缩的任务
                 # TODO: 需要确保只压缩一次
-                if task_record['func_name'] == 'file_task2':
+                # TODO: 临时取消
+
+                self.resource_poller.update_cur_being_executed_time(task_record['executor'],task_record)
+
+                enable_compression = True
+                if enable_compression:
                     compress_flag = self.compress_data_if_necessary(task_record)
                     if compress_flag:
                         # 如果决定压缩之后，需要走特殊的提交通道
+                        exp_logger.info(f"compressing transfer data for target task record {task_record['func_name']} {task_record['id']}")
+                        self.task_tracker.dheft_update_when_dep_need_compress(task_record)
                         continue
-
-
+                
+                
+                self.data_manager.update_transferring_info_for_dheft(task_record)
+                self.task_tracker.dheft_update_when_dep_not_need_compress(task_record)
                 self.resource_poller.update_status_when_submit_one_task(
                     task_record['executor'], task_record=task_record
                 )
@@ -163,11 +179,14 @@ class GreedySelection:
         # 需要选择一个最好的压缩函数
         # 压缩收益等于 : diff_size / avg_band - predict_compress_time - avg_predict_decompress_time
         # 首先计算压缩收益
+
         parent_output = parent_task['output_size']
         parent_executor = parent_task['executor']
 
         max_saved_time = 0
         best_method = None
+        max_diff_size = 0
+        final_compress_size = 0
 
         for compress_method in SUPPORT_COMPRESSOR:
             func_name = parent_task['func_name']
@@ -176,7 +195,14 @@ class GreedySelection:
             if compressed_size is None:
                 continue
             diff_size = max(0, parent_output - compressed_size)
-            saved_time = max(0, self.transfer_predictor.perdict_based_on_bandwith(parent_executor, cur_executor, diff_size))
+
+            if diff_size <= 1:
+                continue
+            saved_time = 0
+            if parent_executor == "taiyi" or parent_executor == "qiming" or cur_executor == "taiyi" or cur_executor == "qiming":
+                saved_time = max(0, self.transfer_predictor.perdict_based_on_bandwith(parent_executor, cur_executor, diff_size) / 10 )
+            else:
+                saved_time = max(0, self.transfer_predictor.perdict_based_on_bandwith(parent_executor, cur_executor, diff_size))
           
             compress_time = self.compress_predictor.predict_compress_execution_time(func_name, compress_method, parent_output, parent_executor, 'compress')
             decompress_time = self.compress_predictor.predict_compress_execution_time(func_name, compress_method, compressed_size, cur_executor, 'decompress')
@@ -186,9 +212,16 @@ class GreedySelection:
             if saved_time  > max_saved_time:
                 max_saved_time = saved_time
                 best_method = compress_method
+                max_diff_size = diff_size
+                final_compress_size = compressed_size
                 # TODO : 如果saved 不够多需要重新检查
-            
-        return best_method
+
+        
+        if max_saved_time > 0.5:
+            exp_logger.info(f"[DHEFT Compression] Saved time {max_saved_time}s and size {max_diff_size} from {parent_executor} to {task_record['executor']} for target task {task_record['func_name']}|{task_record['id']} ")
+            return best_method, final_compress_size
+        
+        return None, final_compress_size
 
 
    
@@ -209,24 +242,26 @@ class GreedySelection:
             parent_task = dep.task_def
            
             
-            # TODO: 变成排他的endpoint
-            # if  parent_task['executor'] == task_record['executor']:
-            #     # 同一个executor不进行任何操作
-            #     continue
+            # # TODO: 变成排他的endpoint
+            if  parent_task['executor'] == task_record['executor']:
+                # 同一个executor不进行任何操作
+                continue
 
             # 如果发现parent已经被check过了，就不能再check了，直接跟随之前的选择，如果需要压缩，则压缩，若不需要压缩则不压缩
             if not parent_task.get('dheft_compress_source_checked', False):
                 # 添加compress_flag告诉所有子任务，需要传输压缩后的数据/或者已经开始传输了，不能再压缩了
-                # TODO: 变成智能选择,此处根据parent的输出和当前task_record的条件，确定是否进行压缩。以及所选择的压缩方式
-                compress_method = self.check_if_compress(parent_task, task_record)
+                compress_method,  final_compress_size = self.check_if_compress(parent_task, task_record)
 
-                compress_method = 'gzip'
 
-                # TODO: 为了debug暂时不开启智能xuanze
+                # TODO : Only for debuging!!!!
+                # compress_method = 'gzip'
+                # final_compress_size = 123
+
                 if compress_method is not None:
                     parent_task['compress_option'] = (compress_method, None, None, None)
                     compress_app = self.tmp_dfk.internal_submit(func=compress_func, app_args=tuple([parent_task['app_fu'],compress_method]), compress_option=(None, compress_method, None,None))
                     parent_task['dheft_source_to_compress_app'] = (compress_method, compress_app)
+                    parent_task['dheft_final_compress_size'] =  final_compress_size
                     self.schedule_compress_task(compress_app)
                     self._direct_launch_task(compress_app.task_def)
 
@@ -258,19 +293,26 @@ class GreedySelection:
         # 替换所有的args/kwargs
         compress_args = []
         for tmp_arg in task_record['args']:
-            if tmp_arg in tmp_decompress_task_tbl:
+            if isinstance(tmp_arg, Future) and tmp_arg in tmp_decompress_task_tbl:
                 compress_args.append(tmp_decompress_task_tbl[tmp_arg])
             else:
-                compress_args.append(tmp_arg)
+                transfer_app = self.tmp_dfk.internal_submit(func=specialized_transfer_task, app_args=tuple([tmp_arg]), compress_option=(None, None, None,None), special_transfer_task=True)
+                transfer_app.task_def["executor"] = task_record["executor"]
+                self._direct_launch_task(transfer_app.task_def)
+                compress_args.append(transfer_app)
+
+            self.data_manager.update_dheft_transferring_by_args(tmp_arg, task_record['executor'])
         task_record['args'] = tuple(compress_args)
 
         compress_kwargs = {}
         for tmp_key in task_record['kwargs']:
-            dep = task_record['kwargs']
-            if dep in tmp_decompress_task_tbl:
+            dep = task_record['kwargs'][tmp_key]
+            if isinstance(dep, Future) and dep in tmp_decompress_task_tbl:
                 compress_kwargs[tmp_key] = tmp_decompress_task_tbl[dep]
             else:
                 compress_kwargs[tmp_key] = dep
+
+            self.data_manager.update_dheft_transferring_by_args(dep, task_record['executor'])
         task_record['kwargs'] = compress_kwargs
         task_record['compress_option'] = (None,None,None,True)
 
@@ -315,6 +357,7 @@ class GreedySelection:
                         break
                 # dep ready之后直接launch 否则重新放入监控队列
                 if all_done:
+                    self.task_tracker.dheft_update_when_decompress_done()
                     self.resource_poller.update_status_when_submit_one_task(
                     task_record['executor'], task_record=task_record
                     )

@@ -80,7 +80,6 @@ class Config(RepresentationMixin):
         usage_tracking: bool = False,
         initialize_logging: bool = True,
         enable_schedule: bool = False,
-        enable_execution_recorder: bool = False,
         transfer_type: Optional[str] = "rsync",
         password_file: Optional[str] = None,
         bandwidth_info: Optional[dict] = None,
@@ -121,7 +120,6 @@ class Config(RepresentationMixin):
         self.usage_tracking = usage_tracking
         self.initialize_logging = initialize_logging
         self.enable_schedule = enable_schedule
-        self.enable_execution_recorder = enable_execution_recorder
         self.transfer_type = transfer_type
         self.password_file = password_file
         self.bandwidth_info = bandwidth_info

@@ -261,18 +261,34 @@ class SFTPClient:
         self.transferring_size = {}
         self.transferring_file_num = {}
        # self.transfer_history_tbl = {}
+
+
+
+        # 这两个变量是为了DHEFT 压缩调度算法专供的
+        self.transferring_size_for_dheft = {}
+        self.transferring_file_num_for_dheft = {}
+
+
         for key in self.executors.keys():
             self.thread_pool[key] = {}
             self.transfer_cmd_queue_dict[key] = {}
             self.cur_on_fly_trans[key] = {}
             self.transferring_size[key] = {}
             self.transferring_file_num[key] = {}
+
+
+            self.transferring_size_for_dheft[key] = {}
+            self.transferring_file_num_for_dheft[key] = {}
+
             for key2 in self.executors.keys():
                 self.thread_pool[key][key2] = ThreadPoolExecutor(max_workers=3)
                 self.transfer_cmd_queue_dict[key][key2] = Queue()
                 self.cur_on_fly_trans[key][key2] = 0
                 self.transferring_size[key][key2] = 0
                 self.transferring_file_num[key][key2] = 0
+
+                self.transferring_size_for_dheft[key][key2] = 0
+                self.transferring_file_num_for_dheft[key][key2] = 0
 
         self.command_server_port = (
             command_server_port  # command server on the endpoint. default is 12548
@@ -344,6 +360,22 @@ class SFTPClient:
         task["future"] = future
         future.add_done_callback(partial(self._transfer_done, task=task))
         self.cur_on_fly_trans[src_host][dest_host] += 1
+
+
+    def get_src_host(self, file):
+        src_host = None
+        if isinstance(file, RemoteFile) or isinstance(file, RemoteDirectory):
+            src_username = file.rsync_username
+            src_ip = file.rsync_ip
+            identifier = f"{src_username}@{src_ip}"
+            
+
+            for exe in self.executor_address_info.keys():
+                if self.executor_address_info[exe]["identifier"] == identifier:
+                    src_host = exe
+                    break
+        return src_host
+
 
     def transfer(self, file, remote_host):
         if isinstance(file, RemoteFile) or isinstance(file, RemoteDirectory):
@@ -461,6 +493,14 @@ class SFTPClient:
     def get_transferring_file_num(self, src_host, dest_host):
         return self.transferring_file_num[src_host][dest_host]
 
+
+
+    def get_transferring_size_for_dheft(self, src_host, dest_host):
+        return max(self.transferring_size_for_dheft[src_host][dest_host] , 0)
+
+    def get_transferring_file_num_for_dheft(self, src_host, dest_host):
+        return max(self.transferring_file_num_for_dheft[src_host][dest_host], 0)
+
     def _transfer_done(self, future, task):
         try:
             transfer_result = future.result()
@@ -469,6 +509,13 @@ class SFTPClient:
             self.cur_on_fly_trans[src_host][dest_host] -= 1
             self.transferring_size[src_host][dest_host] -= task["file_size"]
             self.transferring_file_num[src_host][dest_host] -= 1
+
+
+            self.transferring_size_for_dheft[src_host][dest_host] -= task["file_size"]
+            self.transferring_file_num_for_dheft[src_host][dest_host] -= 1
+
+
+
             if transfer_result.startswith("SUCCESS"):
                 task["status"] = "SUCCEEDED"
                 transfer_size = float(transfer_result.split("|")[-1])

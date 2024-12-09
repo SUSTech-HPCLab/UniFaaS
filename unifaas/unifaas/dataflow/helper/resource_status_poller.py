@@ -190,7 +190,7 @@ class ResourceStatusPoller(object):
 
     def update_when_launch_task(self, executor, task_record=None):
         if task_record is not None : 
-            if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None:
+            if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None or 'special_transfer_task' in task_record:
                 return
         self.real_time_status[executor]["launch_queue_task_num"] -= 1
         if (
@@ -207,13 +207,20 @@ class ResourceStatusPoller(object):
                 executor
             ]
 
-    def update_status_when_submit_one_task(self, executor, task_record=None):
+    def update_cur_being_executed_time(self, executor, task_record):
         if task_record is not None:
             if "predict_execution" in task_record:
                 self.cur_being_executed_time[executor] += task_record["predict_execution"][
                     executor
                 ]
 
+
+    def update_status_when_submit_one_task(self, executor, task_record=None):
+        if task_record is not None:
+            # 不处理压缩和解压缩任务
+            if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None or 'special_transfer_task' in task_record:
+                return
+        
         if self.real_time_status[executor]["closed"]:
             self.real_time_status[executor]["submit_counter"] += 1
         else:
@@ -254,6 +261,10 @@ class ResourceStatusPoller(object):
         # history code, using real_time_status will be more accurate
         # result["total_workers"] = self.not_changed_total_workers[executor]
         import time
+
+        if task_record['compress_option'][1] is not None or task_record['compress_option'][2] is not None or 'special_transfer_task' in task_record:
+            return
+
 
         if "predict_execution" in task_record.keys():
             self.cur_being_executed_time[executor] -= task_record["predict_execution"][

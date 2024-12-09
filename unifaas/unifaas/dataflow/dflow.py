@@ -151,7 +151,7 @@ class DataFlowKernel(object):
         self.enable_duplicate = config.enable_duplicate
 
         self.executors = {}
-        self.task_status_tracker = TaskStatusTracker()
+        self.task_status_tracker = TaskStatusTracker(scheduling_method=config.scheduling_strategy)
 
         for executor in config.executors:
             if isinstance(executor, FuncXExecutor):
@@ -216,6 +216,7 @@ class DataFlowKernel(object):
                 scheduling_strategy=config.scheduling_strategy,
                 execution_recorder=self.execution_recorder,
                 compress_recorder=self.compress_recorder,
+                task_tracker=self.task_status_tracker,
                 workflow_name=self.workflow_name_at_predictor,
                 duplicated_tasks=self.duplicated_tasks,
                 enable_duplicate=self.enable_duplicate,
@@ -483,7 +484,7 @@ class DataFlowKernel(object):
                                     "cpu_freqs_max": res['cpu_freqs_max'],
                                     "execution_time":   res['execution_time']
                                 }
-                                
+                                exp_logger.info(f"[CompressionRecord] {compress_info_tbl}")
                                 self.compress_recorder.write_record(compress_info_tbl)
 
 
@@ -509,6 +510,7 @@ class DataFlowKernel(object):
                                         "cpu_freqs_max": res['cpu_freqs_max'],
                                         "execution_time":   res['execution_time']
                                     }
+                                    exp_logger.info(f"[DeCompressionRecord] {decompress_info_tbl}")
 
                                     
                                     self.compress_recorder.write_record(decompress_info_tbl)
@@ -1105,13 +1107,16 @@ class DataFlowKernel(object):
             self.tasks[task_id] = task_def
 
         # 为target task替换depends
-        #TODO: 这里需要改一下 targets compression
         app_args, app_kwargs = self.replace_args_and_kwargs_with_decompress_task(app_args, app_kwargs)
 
 
         # Get the list of dependencies for the task
         depends = self._gather_all_deps(app_args, app_kwargs)
+
         task_def["depends"] = depends
+        task_def["args"] = app_args
+        task_def["kwargs"] = app_kwargs
+
         depend_descs = []
         for d in depends:
             if isinstance(d, AppFuture):
@@ -1485,6 +1490,7 @@ class DataFlowKernel(object):
         executor=None,
         app_kwargs={},
         compress_option=(None,None,None,None),
+        special_transfer_task=False,
     ):
         """
         This function should only be invoked by internal function
@@ -1524,6 +1530,9 @@ class DataFlowKernel(object):
         }
 
         app_fu = AppFuture(task_def)
+
+        if special_transfer_task:
+            task_def["special_transfer_task"] = True
 
         task_def.update(
             {"args": app_args, "func": func, "kwargs": app_kwargs, "app_fu": app_fu}
@@ -1573,18 +1582,38 @@ class DataFlowKernel(object):
     
     def replace_args_and_kwargs_with_decompress_task(self,app_args, app_kwargs):
 
+        def is_hashable(obj):
+            try:
+                hash(obj)
+                return True
+            except TypeError:
+                return False
+
         # Replace args if task is a target task
         compress_args = []
         for tmp_arg in app_args:
-            if tmp_arg in graphHelper.compress_task_tbl:
+            if isinstance(tmp_arg, list):
+                new_arg = []
+                for element in tmp_arg:
+                    if element in graphHelper.compress_task_tbl:
+                        compress_app = graphHelper.compress_task_tbl[element]
+                        compressor = compress_app.task_def['compress_option'][1]
+                        de_compress_app = self.submit(func=decompress_func, app_args=tuple([compress_app,compressor]), compress_option=(None, None, compressor,None))
+                        # 记录解压任务
+                        self.send_task_to_scheduler(de_compress_app.task_def)
+                        new_arg.append(de_compress_app)
+                    else:
+                        new_arg.append(element)
+                compress_args.append(new_arg)
+
+            elif is_hashable(tmp_arg) and tmp_arg in graphHelper.compress_task_tbl:
                 # 提交解压任务
                 compress_app = graphHelper.compress_task_tbl[tmp_arg]
-                compressor = compress_app.task_def['compress_option'][0]
+                compressor = compress_app.task_def['compress_option'][1]
                 # 新提交一个解压任务
                 de_compress_app = self.submit(func=decompress_func, app_args=tuple([compress_app,compressor]), compress_option=(None, None, compressor,None))
                 # 记录解压任务
                 self.send_task_to_scheduler(de_compress_app.task_def)
-
                 compress_args.append(de_compress_app)
             else:
                 compress_args.append(tmp_arg)
@@ -1594,9 +1623,9 @@ class DataFlowKernel(object):
         compress_kwargs = {}
         for tmp_key in app_kwargs:
             dep = app_kwargs[tmp_key]
-            if dep in graphHelper.compress_task_tbl:
+            if is_hashable(dep) and dep in graphHelper.compress_task_tbl:
                 compress_app = graphHelper.compress_task_tbl[dep]
-                compressor = compress_app.task_def['compress_option'][0]
+                compressor = compress_app.task_def['compress_option'][1]
                 # 新提交一个解压任务
                 de_compress_app = self.submit(func=decompress_func, app_args=tuple([compress_app,compressor]), compress_option=(None, None, compressor,None))
                 # 记录解压任务

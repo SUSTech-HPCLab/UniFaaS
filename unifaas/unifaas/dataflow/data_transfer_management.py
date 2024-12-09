@@ -107,6 +107,58 @@ class DataTransferManager(object):
             task_record["status"] = States.pending
             exp_logger.debug(f"[latency test]  task {task_record['id']} is in pending")
 
+    def update_transferring_info_for_dheft(self, task_record):
+        if isinstance(self.dtc , SFTPClient):
+      
+            new_args, kwargs = self.sanitize_and_wrap(
+                task_record["args"], task_record["kwargs"]
+            )
+            data_to_trans = DataTransferManager.check_data_transfer(
+                new_args
+            ) + DataTransferManager.check_data_transfer(kwargs)
+
+            for remote_file in data_to_trans:
+                src_host = self.dtc.get_src_host(remote_file)
+                dest_host = task_record["executor"]
+                if src_host == dest_host:
+                    continue
+
+                self.dtc.transferring_size_for_dheft[src_host][dest_host] += remote_file.file_size
+                self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+
+        else:
+            logger.error(f"Not support dheft info for dtc {self.dtc}")
+
+    def update_dheft_transferring_by_args(self, tmp_arg, dest_host):
+        try:
+            from concurrent.futures import Future
+
+            if isinstance(tmp_arg, Future) :
+                task_record = tmp_arg.task_def
+                src_host = task_record['executor']
+                if 'dheft_final_compress_size' in task_record:
+                    if src_host == dest_host:
+                        return
+
+                    self.dtc.transferring_size_for_dheft[src_host][dest_host] += task_record['dheft_final_compress_size']
+                    self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+                else: 
+                    data_to_trans = DataTransferManager.check_data_transfer(tmp_arg)
+
+                    for remote_file in data_to_trans:
+                        src_host = self.dtc.get_src_host(remote_file)
+                        if src_host == dest_host:
+                            continue
+
+                        self.dtc.transferring_size_for_dheft[src_host][dest_host] += remote_file.file_size
+                        self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+
+
+        except Exception as e:
+            pass
+
+
+
     def group_transfer(self, task_record):
         if task_record["status"] != States.data_managing:
             return
@@ -154,6 +206,7 @@ class DataTransferManager(object):
     def sanitize_and_wrap(self, args, kwargs):
         # Replace item in args
         new_args = []
+        new_kargs = {}
         try:
             for dep in args:
                 if isinstance(dep, Future):
@@ -165,11 +218,11 @@ class DataTransferManager(object):
             for key in kwargs:
                 dep = kwargs[key]
                 if isinstance(dep, Future):
-                    kwargs[key] = dep.result()
+                    new_kargs[key] = dep.result()
         except Exception as e:
             return [], {}
 
-        return new_args, kwargs
+        return new_args, new_kargs
 
     def handle_task_record_data_managing(
         self, task_record, input_data=None, retry=False, invoke=False

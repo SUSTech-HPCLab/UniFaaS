@@ -207,8 +207,13 @@ class TransferPredictor:
     def real_time_predict_for_transfer(
         self, transfer_size, src_ep, dest_ep, num_workers=3
     ):
-        cur_transffering_size = self.dtc.get_transferring_size(src_ep, dest_ep)
-        cur_transffering_num = self.dtc.get_transferring_file_num(src_ep, dest_ep)
+        # cur_transffering_size = self.dtc.get_transferring_size(src_ep, dest_ep)
+        # cur_transffering_num = self.dtc.get_transferring_file_num(src_ep, dest_ep)
+
+        cur_transffering_size = self.dtc.get_transferring_size_for_dheft(src_ep, dest_ep)
+        cur_transffering_num = self.dtc.get_transferring_file_num_for_dheft(src_ep, dest_ep)
+
+
         if src_ep == dest_ep:
             return 0
         bandwith = self.network_info[src_ep][dest_ep]["bandwidth"]
