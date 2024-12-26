@@ -37,6 +37,7 @@ class Scheduler:
         workflow_name="default",
         duplicated_tasks=None,
         enable_duplicate=False,
+        analyzer=None,
     ):
         if scheduling_strategy is None:
             self.scheduling_strategy = "RANDOM"
@@ -59,6 +60,7 @@ class Scheduler:
         self.duplicated_tasks = duplicated_tasks
         self.data_manager = DataTransferManager(self.executors)
         self.task_tracker = task_tracker
+        self.analyzer = analyzer
         if self.scheduling_strategy == "AUTO":
             self.auto_scheduling = AutoScheduling(
                 self.resource_poller,
@@ -121,6 +123,7 @@ class Scheduler:
                 self.data_manager,
                 "HEFT",
                 self.task_tracker,
+                self.analyzer
             )
 
     def put_important_task_into_duplicated_queue(self, task_record):
@@ -491,7 +494,7 @@ class Scheduler:
                 if isinstance(dep, Future) and not dep.done():
                     all_done = False
             if all_done:
-                # targert task已经被提交过了，这里不需要再update任务了
+                # target task已经被提交过了，这里不需要再update任务了
                 # self.resource_poller.update_status_when_submit_one_task(task_record['executor'], task_record)
 
                 task_record["submitted_to_poller"] = True

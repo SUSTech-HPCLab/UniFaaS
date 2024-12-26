@@ -39,6 +39,7 @@ class DataTransferManager(object):
             self.label_to_executor = {}
             self.executor_to_globus = {}
             self.executor_to_data_path = {}
+            self.bandwidth_info = bandwith_info
             if transfer_type == "rsync":
                 self.dtc = RsyncTransferClient(
                     self.executors, password_file=password_file
@@ -50,7 +51,6 @@ class DataTransferManager(object):
             self.data_transfer_predictor = TransferPredictor(
                 self.executors, bandwith_info=bandwith_info, dtc=self.dtc
             )
-
             self.not_scheduling_task_queue = Queue()
             self.raw_graph = {}
             self.fu_to_task = {}
@@ -133,7 +133,20 @@ class DataTransferManager(object):
         try:
             from concurrent.futures import Future
 
-            if isinstance(tmp_arg, Future) :
+            def update_transfer_stats(arg):
+                data_to_trans = DataTransferManager.check_data_transfer(arg)
+                for remote_file in data_to_trans:
+                    src_host = self.dtc.get_src_host(remote_file)
+                    if src_host != dest_host:
+                        self.dtc.transferring_size_for_dheft[src_host][dest_host] += remote_file.file_size
+                        self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+
+
+            if isinstance(tmp_arg, list):
+                for ele in tmp_arg:
+                    self.update_dheft_transferring_by_args(ele, dest_host)
+
+            if isinstance(tmp_arg, Future):
                 task_record = tmp_arg.task_def
                 src_host = task_record['executor']
                 if 'dheft_final_compress_size' in task_record:
@@ -142,16 +155,12 @@ class DataTransferManager(object):
 
                     self.dtc.transferring_size_for_dheft[src_host][dest_host] += task_record['dheft_final_compress_size']
                     self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+
+                elif task_record['func_name'] == 'specialized_transfer_task':
+                    for real_transfer_arg in task_record['args']:
+                        update_transfer_stats(real_transfer_arg)
                 else: 
-                    data_to_trans = DataTransferManager.check_data_transfer(tmp_arg)
-
-                    for remote_file in data_to_trans:
-                        src_host = self.dtc.get_src_host(remote_file)
-                        if src_host == dest_host:
-                            continue
-
-                        self.dtc.transferring_size_for_dheft[src_host][dest_host] += remote_file.file_size
-                        self.dtc.transferring_file_num_for_dheft[src_host][dest_host] += 1
+                    update_transfer_stats(tmp_arg)
 
 
         except Exception as e:

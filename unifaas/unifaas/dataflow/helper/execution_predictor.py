@@ -165,7 +165,8 @@ class ExecutionPredictor:
         # If there is no model file, but there is a record file, train a model
         all_distinct_func = self.recorder.get_all_distinct_func()
         func_to_train = self._check_to_train()
-       #self.train(func_to_train)
+        
+        self.train(func_to_train)
 
         # Load existing model
         self._load_existing_model()
@@ -188,6 +189,7 @@ class ExecutionPredictor:
                 if exe_key == 'lab02':
                     cpu_str = '104@3400'
                 elif exe_key == 'cse_cluster':
+                 #   cpu_str = '40@3700' for drug
                     cpu_str = '192@3900'
                 elif exe_key == 'taiyi':
                     cpu_str = '40@3700'
@@ -272,9 +274,12 @@ class ExecutionPredictor:
         model_file_list = os.listdir(self.execution_model_dir)
 
         for func_name in functions_list:
+            #TODO: debug输出一下output model
             if f"{func_name}.pkl" not in model_file_list:
                 func_to_train.append(func_name)
-        return functions_list
+            #func_to_train.append(func_name)
+
+        return func_to_train
 
     def _load_existing_model(self):
         model_file_list = os.listdir(self.execution_model_dir)

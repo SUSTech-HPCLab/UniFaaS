@@ -36,6 +36,9 @@ from unifaas.dataflow.data_transfer_management import DataTransferManager
 from unifaas.dataflow.helper.execution_recorder import ExecutionRecorder, CompressionRecorder
 from unifaas.dataflow.helper.resource_status_poller import ResourceStatusPoller
 from unifaas.dataflow.helper.graph_helper import graphHelper
+from unifaas.dataflow.analyzer.mock_analyzer import MockAnalyzer
+from unifaas.dataflow.analyzer.mock_event_driven_analyzer import EventSimulator
+
 from unifaas.dataflow.helper.task_status_tracker import TaskStatusTracker
 from unifaas.dataflow.task_launcher import TaskLauncher
 from unifaas.compressor import compress_func, SUPPORT_COMPRESSOR, decompress_func
@@ -95,6 +98,9 @@ class DataFlowKernel(object):
             unifaas.set_file_logger(
                 "{}/exp.log".format(self.run_dir), name="experiment", level=logging.INFO
             )
+            unifaas.set_file_logger(
+                "{}/simulation_log.log".format(self.run_dir), name="simulation", level=logging.INFO
+            )
 
         logger.debug("Starting DataFlowKernel with config\n{}".format(config))
 
@@ -152,12 +158,18 @@ class DataFlowKernel(object):
 
         self.executors = {}
         self.task_status_tracker = TaskStatusTracker(scheduling_method=config.scheduling_strategy)
+        if config.scheduling_strategy != "DHEFT":
+            self.analyzer = MockAnalyzer(False)
+            self.event_analyzer = EventSimulator(False)
+        else:
+            self.analyzer = MockAnalyzer(config.enable_analyzer)
+            self.event_analyzer = EventSimulator(config.enable_analyzer)
 
         for executor in config.executors:
             if isinstance(executor, FuncXExecutor):
                 executor.pre_data_trans = True
         self.add_executors(config.executors)
-        self.status_poller = ResourceStatusPoller(config.executors)
+        self.status_poller = ResourceStatusPoller(config.executors, analyzer=self.analyzer, event_analyzer=self.event_analyzer)
         for executor_label in self.executors.keys():
             executor = self.executors[executor_label]
             if isinstance(executor, FuncXExecutor):
@@ -191,8 +203,11 @@ class DataFlowKernel(object):
             self.executors,
             password_file=config.password_file,
             bandwith_info=config.bandwidth_info,
-            transfer_type=config.transfer_type,
+            transfer_type=config.transfer_type
         )
+
+        self.analyzer.add_data_manager(self.data_trans_management)
+        self.event_analyzer.add_data_manager(self.data_trans_management)
 
         # Temporarily, the recorder, status and predictor are initialized together
         self.execution_recorder = ExecutionRecorder()
@@ -220,6 +235,7 @@ class DataFlowKernel(object):
                 workflow_name=self.workflow_name_at_predictor,
                 duplicated_tasks=self.duplicated_tasks,
                 enable_duplicate=self.enable_duplicate,
+                analyzer=self.analyzer
             )
 
     def _send_task_log_info(self, task_record):

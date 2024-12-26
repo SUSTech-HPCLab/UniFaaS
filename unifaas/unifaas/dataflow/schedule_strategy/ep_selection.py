@@ -34,7 +34,8 @@ class GreedySelection:
         compress_predictor,
         data_manager,
         priority_type,
-        task_tracker
+        task_tracker,
+        analyzer,
     ):
         self.resource_poller = resource_poller
         self.execution_predictor = execution_predictor
@@ -47,6 +48,7 @@ class GreedySelection:
         self.data_ready_queue = PriorityQueue()  # ic_optimal priority queue
         self.special_decompress_launch_que = Queue()
         self.task_tracker = task_tracker
+        self.analyzer = analyzer
 
 
         self._kill_event = threading.Event()
@@ -100,6 +102,12 @@ class GreedySelection:
                 f"handle data ready with qsize {self.data_ready_queue.qsize()}"
             )
         while True:
+
+            #TODO: 为了测试模拟器 debug用的
+            time.sleep(0.5)
+            continue
+
+
             feasible_ep = []
             real_time_resource = self.resource_poller.get_real_time_status()
             for key in real_time_resource.keys():
@@ -149,7 +157,11 @@ class GreedySelection:
                 # TODO：替换成所有需要压缩的任务
                 # TODO: 需要确保只压缩一次
                 # TODO: 临时取消
-
+            
+                task_record["transfer_cost_for_analyzer"] = self.transfer_predictor.real_time_predict_comm_cost_for_task_record(
+                        task_record, task_record["executor"]
+                )
+                self.analyzer.submit_task_record_to_mock_endpoint(task_record, task_record['executor'])
                 self.resource_poller.update_cur_being_executed_time(task_record['executor'],task_record)
 
                 enable_compression = True
@@ -217,7 +229,9 @@ class GreedySelection:
                 # TODO : 如果saved 不够多需要重新检查
 
         
-        if max_saved_time > 0.5:
+        # Cov-19 是大于1
+        # montage 需要大于的更多
+        if max_saved_time > 4:
             exp_logger.info(f"[DHEFT Compression] Saved time {max_saved_time}s and size {max_diff_size} from {parent_executor} to {task_record['executor']} for target task {task_record['func_name']}|{task_record['id']} ")
             return best_method, final_compress_size
         
@@ -254,7 +268,7 @@ class GreedySelection:
 
 
                 # TODO : Only for debuging!!!!
-                # compress_method = 'gzip'
+                # compress_method = 'fpack'
                 # final_compress_size = 123
 
                 if compress_method is not None:
@@ -276,8 +290,8 @@ class GreedySelection:
 
                 tmp_decompress_task_tbl[parent_task['app_fu']] = de_compress_app
                 for i in range(len(task_record['depends'])):
-                        if task_record['depends'][i] == parent_task['app_fu']:
-                            task_record['depends'][i] = de_compress_app
+                    if task_record['depends'][i] == parent_task['app_fu']:
+                        task_record['depends'][i] = de_compress_app
 
             parent_task['dheft_compress_source_checked'] = True
 
@@ -293,13 +307,33 @@ class GreedySelection:
         # 替换所有的args/kwargs
         compress_args = []
         for tmp_arg in task_record['args']:
-            if isinstance(tmp_arg, Future) and tmp_arg in tmp_decompress_task_tbl:
+            if isinstance(tmp_arg, list):
+                new_tmp_arg = []
+                for ele in tmp_arg:
+                    if isinstance(ele, Future) and ele in tmp_decompress_task_tbl:
+                        new_tmp_arg.append(tmp_decompress_task_tbl[ele])
+                    else:
+                        transfer_app = self.tmp_dfk.internal_submit(func=specialized_transfer_task, app_args=tuple([ele]), compress_option=(None, None, None,None), special_transfer_task=True)
+                        transfer_app.task_def["executor"] = task_record["executor"]
+                        self._direct_launch_task(transfer_app.task_def)
+                        new_tmp_arg.append(transfer_app)
+                        for i in range(len(task_record['depends'])):
+                            if task_record['depends'][i] == ele:
+                                task_record['depends'][i] = transfer_app
+
+                compress_args.append(new_tmp_arg)
+
+            elif isinstance(tmp_arg, Future) and tmp_arg in tmp_decompress_task_tbl:
                 compress_args.append(tmp_decompress_task_tbl[tmp_arg])
             else:
                 transfer_app = self.tmp_dfk.internal_submit(func=specialized_transfer_task, app_args=tuple([tmp_arg]), compress_option=(None, None, None,None), special_transfer_task=True)
                 transfer_app.task_def["executor"] = task_record["executor"]
                 self._direct_launch_task(transfer_app.task_def)
                 compress_args.append(transfer_app)
+
+                for i in range(len(task_record['depends'])):
+                    if task_record['depends'][i] == tmp_arg:
+                        task_record['depends'][i] = transfer_app
 
             self.data_manager.update_dheft_transferring_by_args(tmp_arg, task_record['executor'])
         task_record['args'] = tuple(compress_args)

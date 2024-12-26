@@ -30,12 +30,15 @@ class ResourceStatusPoller(object):
             cls.__instance = object.__new__(cls)
         return cls.__instance
 
-    def __init__(self, executors, poll_period=10):
+    def __init__(self, executors, analyzer=None, event_analyzer=None, poll_period=10):
         if ResourceStatusPoller.__first_init == False:
             self.executors = executors
+            self.analyzer = analyzer
+            self.event_analyzer = event_analyzer
             self.not_changed_total_workers = {}
             self.poll_period = poll_period
             self._stop = False
+            self.debug_for_analyzer = True
             self._poller_thread = None
             self.resource_status = {}
             self.real_time_status = {}
@@ -62,7 +65,10 @@ class ResourceStatusPoller(object):
     def update_from_webserivce(self, kill_event, interval=10):
         while not kill_event.is_set():
             # break  only for test
+            if self.debug_for_analyzer:
+                break
             self._update_resource()
+
             time.sleep(60)
 
     def _update_resource(self):
@@ -73,22 +79,34 @@ class ResourceStatusPoller(object):
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as thread_executor:
             for funcx_executor in self.executors:
                 if isinstance(funcx_executor, FuncXExecutor):
-                    futures_dict[funcx_executor.label] = (
-                        None
-                        if funcx_executor.fxc is None
-                        else thread_executor.submit(
-                            funcx_executor.fxc.get_endpoint_status,
-                            funcx_executor.endpoint,
+                    if not self.debug_for_analyzer:
+                        futures_dict[funcx_executor.label] = (
+                            None
+                            if funcx_executor.fxc is None
+                            else thread_executor.submit(
+                                funcx_executor.fxc.get_endpoint_status,
+                                funcx_executor.endpoint,
+                            )
                         )
-                    )
+                    else:
+                        futures_dict[funcx_executor.label] = {}
 
         for executor in futures_dict.keys():
             try:
-                data = (
-                    futures_dict[executor].result()
-                    if futures_dict[executor] is not None
-                    else None
-                )
+                
+                data = None
+                if self.debug_for_analyzer:
+                    debug_info_dir = f"/home/eric/.unifaas/debug_info/{executor}.pkl"
+                    import pickle
+                    data = pickle.load(open(debug_info_dir, "rb"))
+                else:
+                    data = (
+                        futures_dict[executor].result()
+                        if futures_dict[executor] is not None
+                        else None
+                    )
+
+
             except Exception as e:
                 logger.warning(
                     f"Can't get Executor {executor} status due to exception {e} at result"
@@ -121,6 +139,11 @@ class ResourceStatusPoller(object):
                             "max_total_workers": info["max_total_workers"],
                             "launch_queue_task_num": 0,
                         }
+
+                        # TODO: 需要添加min blocks max blocks per blocks
+                        workers_per_block = info["nodes_per_block"] *  info["max_workers_per_node"] 
+                        self.analyzer.add_mock_endpoint(executor, info["rsync_ip"], info["total_workers"], info["min_blocks"], info["max_blocks"], workers_per_block, info["ic_total_workers"])
+                        self.event_analyzer.add_mock_endpoint(executor, info["rsync_ip"], info["total_workers"], info["min_blocks"], info["max_blocks"], workers_per_block, info["ic_total_workers"])
 
                     if not executor in self.cur_being_executed_time.keys():
                         self.cur_being_executed_time[executor] = 0
@@ -270,6 +293,8 @@ class ResourceStatusPoller(object):
             self.cur_being_executed_time[executor] -= task_record["predict_execution"][
                 executor
             ]
+
+            self.analyzer.remove_task_record_from_mock_endpoint(task_record, task_record["executor"])
 
         tmp_status = self.resource_status[executor]
         tmp_status["active_managers"] = result["active_managers"]
